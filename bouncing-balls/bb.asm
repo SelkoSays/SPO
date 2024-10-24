@@ -52,7 +52,6 @@ ballInit
 	RMO	A, T
 
 	LDB	#balls
-	BASE	balls
 
 bLoop	COMPR	X, T
 	JEQ	bEndLoop
@@ -65,7 +64,8 @@ bLoop	COMPR	X, T
 	STA	arg2
 	JSUB	rand
 	LDA	arg1
-	STA	b_px, X
+	. WHY NOT BASE
+	STA	b_px, X, B
 
 	. RANDOM Y POS
 	LDA	#1
@@ -74,7 +74,7 @@ bLoop	COMPR	X, T
 	STA	arg2
 	JSUB	rand
 	LDA	arg1
-	STA	b_py, X
+	STA	b_py, X, B
 
 	. RANDOM X VEL
 	LDA	#-1
@@ -83,7 +83,7 @@ bLoop	COMPR	X, T
 	STA	arg2
 	JSUB	rand
 	LDA	arg1
-	STA	b_vx, X
+	STA	b_vx, X, B
 
 	. RANDOM Y VEL
 	LDA	#-1
@@ -92,7 +92,7 @@ bLoop	COMPR	X, T
 	STA	arg2
 	JSUB	rand
 	LDA	arg1
-	STA	b_vy, X
+	STA	b_vy, X, B
 
 	LDA	#bSize
 	ADDR	A, X
