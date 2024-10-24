@@ -1,32 +1,34 @@
 BB	START	0
 PROG
-	LDA	width
-	MUL	height
-	STA	pxlen
+	. LDA	width
+	. MUL	height
+	. STA	pxlen
+	. LDA	#pxlen
 
 	JSUB	stkinit
+	JSUB	ballInit
 
-	LDA	#0
-	STA	arg1
-	LDA	#5
-	STA	arg2
-	JSUB	rand
-	LDA	arg1
+	. LDA	#0
+	. STA	arg1
+	. LDA	#5
+	. STA	arg2
+	. JSUB	rand
+	. LDA	arg1
 
-	LDS	#0
-	STS	arg1
-	LDS	#5
-	STS	arg2
-	JSUB	rand
-	LDS	arg1
+	. LDS	#0
+	. STS	arg1
+	. LDS	#5
+	. STS	arg2
+	. JSUB	rand
+	. LDS	arg1
 
 
-	LDB	#0
-	STB	arg1
-	LDB	#5
-	STB	arg2
-	JSUB	rand
-	LDB	arg1
+	. LDB	#0
+	. STB	arg1
+	. LDB	#5
+	. STB	arg2
+	. JSUB	rand
+	. LDB	arg1
 	
 
 halt	J	halt
@@ -52,8 +54,51 @@ ballInit
 	LDB	#balls
 	BASE	balls
 
-	
+bLoop	COMPR	X, T
+	JEQ	bEndLoop
+	JGT	bEndLoop
 
+	. RANDOM X POS
+	LDA	#1
+	STA	arg1
+	LDA	#width - 1
+	STA	arg2
+	JSUB	rand
+	LDA	arg1
+	STA	b_px, X
+
+	. RANDOM Y POS
+	LDA	#1
+	STA	arg1
+	LDA	#height - 1
+	STA	arg2
+	JSUB	rand
+	LDA	arg1
+	STA	b_py, X
+
+	. RANDOM X VEL
+	LDA	#-1
+	STA	arg1
+	LDA	#2
+	STA	arg2
+	JSUB	rand
+	LDA	arg1
+	STA	b_vx, X
+
+	. RANDOM Y VEL
+	LDA	#-1
+	STA	arg1
+	LDA	#2
+	STA	arg2
+	JSUB	rand
+	LDA	arg1
+	STA	b_vy, X
+
+	LDA	#bSize
+	ADDR	A, X
+
+	J	bLoop
+bEndLoop
 	NOBASE
 
 	JSUB	POP
@@ -193,9 +238,9 @@ SErrEnd	J	SErrEnd
 .DATA
 
 .screen
-width	WORD	80
-height	WORD	25
-pxlen	WORD	0
+width	EQU	80
+height	EQU	25
+pxlen	EQU	width * height
 
 . rand data
 rnd_cur	WORD	142	. SEED
@@ -206,10 +251,10 @@ rnd_add	WORD	13
 .  pos x,y [0, WIDTH], [0, HEIGHT]
 .  vel x,y {-1, 0, 1}
 .SIZEOF(Ball) = 3 + 3 + 3 + 3 = 12B
-b_px	EQU	0	. offset of field px
-b_py	EQU	3	. offset of field py
-b_vx	EQU	6	. offset of field vx
-b_vy	EQU	9	. offset of field vy
+b_px	WORD	0	. offset of field px
+b_py	WORD	3	. offset of field py
+b_vx	WORD	6	. offset of field vx
+b_vy	WORD	9	. offset of field vy
 
 bLen	EQU	3
 bSize	EQU	12
