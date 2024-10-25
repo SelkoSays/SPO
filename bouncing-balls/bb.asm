@@ -1,34 +1,7 @@
 BB	START	0
 PROG
-	. LDA	width
-	. MUL	height
-	. STA	pxlen
-	. LDA	#pxlen
-
 	JSUB	stkinit
 	JSUB	ballInit
-
-	. LDA	#0
-	. STA	arg1
-	. LDA	#5
-	. STA	arg2
-	. JSUB	rand
-	. LDA	arg1
-
-	. LDS	#0
-	. STS	arg1
-	. LDS	#5
-	. STS	arg2
-	. JSUB	rand
-	. LDS	arg1
-
-
-	. LDB	#0
-	. STB	arg1
-	. LDB	#5
-	. STB	arg2
-	. JSUB	rand
-	. LDB	arg1
 	
 
 halt	J	halt
@@ -46,12 +19,11 @@ ballInit
 	STT	@stkptr
 	JSUB	PUSH
 
-	LDX	#0
+	LDX	#balls
 	LDA	#bLen
 	MUL	#bSize
+	ADD	#balls
 	RMO	A, T
-
-	LDB	#balls
 
 bLoop	COMPR	X, T
 	JEQ	bEndLoop
@@ -64,8 +36,10 @@ bLoop	COMPR	X, T
 	STA	arg2
 	JSUB	rand
 	LDA	arg1
-	. WHY NOT BASE
-	STA	b_px, X, B
+	STA	0, X
+	
+	LDA	#3
+	ADDR	A, X
 
 	. RANDOM Y POS
 	LDA	#1
@@ -74,32 +48,41 @@ bLoop	COMPR	X, T
 	STA	arg2
 	JSUB	rand
 	LDA	arg1
-	STA	b_py, X, B
+	STA	0, X
+
+	LDA	#3
+	ADDR	A, X
 
 	. RANDOM X VEL
-	LDA	#-1
+	+LDA	#0xFFFFF
+	SHIFTL	A, 4
+	OR	#0xF
 	STA	arg1
 	LDA	#2
 	STA	arg2
 	JSUB	rand
 	LDA	arg1
-	STA	b_vx, X, B
+	STA	0, X
+
+	LDA	#3
+	ADDR	A, X
 
 	. RANDOM Y VEL
-	LDA	#-1
+	+LDA	#0xFFFFF
+	SHIFTL	A, 4
+	OR	#0xF
 	STA	arg1
 	LDA	#2
 	STA	arg2
 	JSUB	rand
 	LDA	arg1
-	STA	b_vy, X, B
+	STA	0, X
 
-	LDA	#bSize
+	LDA	#3
 	ADDR	A, X
 
 	J	bLoop
 bEndLoop
-	NOBASE
 
 	JSUB	POP
 	LDT	@stkptr
@@ -230,10 +213,17 @@ stkerr	. Stack Error
 serr_l	LDCH	0, X
 	COMP	#0
 	JEQ	SErrEnd
+	JSUB	blk_u_r
 	WD	#1
 	ADDR	S, X
 	J	serr_l
 SErrEnd	J	SErrEnd
+
+. stdout
+. block until ready
+blk_u_r	TD	#1
+	JGT	blk_u_r
+	RSUB
 
 .DATA
 
