@@ -1,75 +1,13 @@
+. SHOULD BE RUN AT 60000
 BB	START	0
 PROG
 	JSUB	stkinit
 	JSUB	ballInit
 
 lLoop
-. Clear balls
-	. CLEAR	A
-	. STA	arg1
-	. JSUB	dspBalls
-
-. Move balls
 	JSUB	mvBalls
-
-. Display balls
-	. LDA	#111	. 111 = 'o'
-	. STA	arg1
-	. JSUB	dspBalls
-
 	J	lLoop
 	
-halt	J	halt
-
-. Display balls on screen
-. char = arg1
-dspBalls
-	STL	@stkptr
-	JSUB	PUSH
-	STA	@stkptr
-	JSUB	PUSH
-	STX	@stkptr
-	JSUB	PUSH
-	STT	@stkptr
-	JSUB	PUSH
-
-	LDX	#balls
-	LDA	#bLen
-	MUL	#bSize
-	ADD	#balls
-	RMO	A, T
-
-dbLoop	COMPR	X, T
-	JEQ	dbEndLoop
-	JGT	dbEndLoop
-
-	. X POS
-	LDA	0, X
-	STA	arg2
-	
-	. Y POS
-	LDA	3, X
-	STA	arg3
-
-	JSUB	dspChar
-
-	LDA	#bSize	. SKIP BALL
-	ADDR	A, X
-
-	J	dbLoop	
-
-dbEndLoop
-	JSUB	POP
-	LDT	@stkptr
-	JSUB	POP
-	LDX	@stkptr
-	JSUB	POP
-	LDA	@stkptr
-	JSUB	POP
-	LDL	@stkptr
-
-	RSUB
-
 . Move balls
 mvBalls
 	STL	@stkptr
@@ -453,10 +391,10 @@ rnd_add	WORD	13
 .  pos x,y [0, WIDTH], [0, HEIGHT]
 .  vel x,y {-1, 1}
 .SIZEOF(Ball) = 3 + 3 + 3 + 3 = 12B
-b_px	WORD	0	. offset of field px
-b_py	WORD	3	. offset of field py
-b_vx	WORD	6	. offset of field vx
-b_vy	WORD	9	. offset of field vy
+. b_px	WORD	0	. offset of field px
+. b_py	WORD	3	. offset of field py
+. b_vx	WORD	6	. offset of field vx
+. b_vy	WORD	9	. offset of field vy
 
 bLen	EQU	9
 bSize	EQU	12
