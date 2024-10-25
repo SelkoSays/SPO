@@ -16,7 +16,7 @@ lLoop
 	. LDA	#111	. 111 = 'o'
 	. STA	arg1
 	. JSUB	dspBalls
-	
+
 	J	lLoop
 	
 halt	J	halt
@@ -451,14 +451,14 @@ rnd_add	WORD	13
 
 .Ball
 .  pos x,y [0, WIDTH], [0, HEIGHT]
-.  vel x,y {-1, 0, 1}
+.  vel x,y {-1, 1}
 .SIZEOF(Ball) = 3 + 3 + 3 + 3 = 12B
 b_px	WORD	0	. offset of field px
 b_py	WORD	3	. offset of field py
 b_vx	WORD	6	. offset of field vx
 b_vy	WORD	9	. offset of field vy
 
-bLen	EQU	1
+bLen	EQU	9
 bSize	EQU	12
 balls	RESW	bLen * bSize . array of balls
 
