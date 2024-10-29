@@ -62,7 +62,7 @@ mvbCXVS . change X velocity sign
 	SUB	#1
 	MUL	6, X
 	STA	6, X
-	J	mvbYP
+	J	mvbXP
 mvbSkipX
 	STA	0, X	. STORE NEW X POS
 .--------------------------------------
