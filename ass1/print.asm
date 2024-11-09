@@ -1,0 +1,42 @@
+PRINT	START	0
+DEV	BYTE	0xAA
+STR	BYTE	C'SIC/XE'
+	BYTE	10
+	BYTE	0
+SVL1	WORD	0
+SVL2	WORD	0
+
+PROG
+	LDX	#STR
+	JSUB	PUTS
+
+halt	J	halt
+
+. X = STR ADDR
+PUTS
+	STL	SVL1
+	LDS	#1
+LOOP	LDCH	0, X
+	COMP	#0
+	JEQ	ELOOP
+
+	JSUB	PUTC
+
+	ADDR	S, X
+	J	LOOP
+
+ELOOP	LDL	SVL1
+	RSUB
+
+. A = char, DEV = device
+PUTC
+	STL	SVL2
+	JSUB	blk_u_r
+	WD	DEV
+	LDL	SVL2
+	RSUB
+. block until DEV ready
+blk_u_r	TD	DEV
+	JGT	blk_u_r
+	RSUB
+	END	PROG
