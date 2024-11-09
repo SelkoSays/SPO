@@ -1,0 +1,52 @@
+ARITH	START	0
+x	WORD	7
+y	WORD	4
+sum	RESW	1
+diff	RESW	1
+prod	RESW	1
+quot	RESW	1
+mod	RESW	1
+
+PROG
+	JSUB	SUMXY
+	JSUB	DIFFXY
+	JSUB	PRODXY
+	JSUB	QUOTXY
+	JSUB	MODXY
+halt	J	halt
+
+SUMXY
+	LDA	x
+	ADD	y
+	STA	sum
+	RSUB
+
+DIFFXY
+	LDA	x
+	SUB	y
+	STA	diff
+	RSUB
+
+PRODXY
+	LDA	x
+	MUL	y
+	STA	prod
+	RSUB
+
+QUOTXY
+	LDA	x
+	DIV	y
+	STA	quot
+	RSUB
+
+MODXY
+	LDA	x
+	DIV	y
+	MUL	y
+	STA	mod
+	LDA	x
+	SUB	mod
+	STA	mod
+	RSUB
+
+	END	PROG
