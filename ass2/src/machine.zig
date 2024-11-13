@@ -2,7 +2,7 @@ const std = @import("std");
 
 regs: RegTable,
 
-const Regs = enum(u8) {
+pub const Regs = enum(u4) {
     A = 0x0,
     X = 0x1,
     L = 0x2,
@@ -12,6 +12,10 @@ const Regs = enum(u8) {
     F = 0x6,
     PC = 0x7,
     SW = 0x8,
+
+    pub fn asInt(self: Regs) u4 {
+        return @intFromEnum(self);
+    }
 };
 
 const RegTable = struct {
