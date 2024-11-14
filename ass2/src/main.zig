@@ -1,11 +1,14 @@
 const std = @import("std");
-const bt = @import("builtin");
 const mach = @import("machine.zig");
 const Machine = mach.Machine;
+const Device = @import("device.zig").Device;
 
 pub fn main() !void {
     var buf = [_]u8{0} ** 20;
-    var m = Machine.init(&buf);
+    var devs = [_]?Device{null} ** 256;
+    var m = Machine.init(&buf, &devs);
+
+    m.devs.setDevice(0, Device{ .file = std.io.getStdIn() });
 
     m.mem.set(0, @as(u24, 1));
 
