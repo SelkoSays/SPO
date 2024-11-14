@@ -1,8 +1,6 @@
 const std = @import("std");
 
-regs: RegTable,
-
-pub const Regs = enum(u4) {
+pub const RegIdx = enum(u4) {
     A = 0x0,
     X = 0x1,
     L = 0x2,
@@ -10,42 +8,104 @@ pub const Regs = enum(u4) {
     S = 0x4,
     T = 0x5,
     F = 0x6,
-    PC = 0x7,
-    SW = 0x8,
+    PC = 0x8,
+    SW = 0x9,
 
-    pub fn asInt(self: Regs) u4 {
+    const Self = @This();
+
+    pub fn asInt(self: Self) u4 {
         return @intFromEnum(self);
     }
 };
 
 const RegTable = struct {
-    A: u24,
-    X: u24,
-    L: u24,
-    B: u24,
-    S: u24,
-    T: u24,
-    F: f64,
-    PC: u24, // program counter
-    SW: u24, // status register
-};
+    gpr: GPR = .{},
+    F: f64 = 0.0,
+    PC: u24 = 0, // program counter
+    SW: SR = .{ .i = 0 }, // status register
 
-pub const StatReg = packed struct(u24) {
-    mode: u1,
-    idle: u1,
-    id: u4,
-    cc: u2,
-    mask: u4,
-    _unused: u4,
-    icode: u8,
+    const GPR = struct { // General Purpose Registers
+        A: u24 = 0,
+        X: u24 = 0,
+        L: u24 = 0,
+        B: u24 = 0,
+        S: u24 = 0,
+        T: u24 = 0,
+
+        pub fn asArray(self: *GPR) [*]u24 {
+            return @ptrCast(self);
+        }
+    };
+
+    const SR = packed union {
+        i: u24,
+        s: packed struct(u24) {
+            mode: u1,
+            idle: u1,
+            id: u4,
+            cc: Ord,
+            mask: u4,
+            _unused: u4,
+            icode: u8,
+
+            const Ord = enum(u2) {
+                Less = 0b00,
+                Equal = 0b01,
+                Greater = 0b10,
+            };
+        },
+    };
 
     const Self = @This();
 
-    pub fn asInt(self: Self) u24 {
-        return @bitCast(self);
+    pub fn init() Self {
+        return .{};
     }
 
-    pub fn fromInt(i: u24) Self {
-        return @bitCast(i);
+    /// Set register
+    pub fn set(self: *Self, ri: RegIdx, val: anytype) void {
+        // TODO: don't panic -> log error instead?
+        if (@TypeOf(val) == f64) {
+            if (ri != RegIdx.F) std.debug.panic("Register {} cannot be set with a floating point number.", .{ri});
+            self.F = val;
+        } else if (@TypeOf(val) == u8) {
+            if (ri != RegIdx.A) std.debug.panic("Register {} cannot be set with an 8-bit number.", .{ri});
+            self.gpr.rt.A |= val;
+        } else {
+            switch (ri) {
+                .F => @panic("Register F cannot be set with a word."),
+                .SW => self.SW.i = val,
+                .PC => self.PC = val,
+                else => self.gpr.asArray()[ri.asInt()] = val,
+            }
+        }
+    }
+
+    /// Get register
+    pub fn get(self: *Self, ri: RegIdx, comptime T: type) T {
+        if (T == f64) {
+            if (ri != RegIdx.F) std.debug.panic("Cannot read register {} as a floating point number.", .{ri});
+            return self.F;
+        } else if (T == u8) {
+            if (ri != RegIdx.A) std.debug.panic("Cannot read register {} as an 8-bit number.", .{ri});
+            return @intCast(self.gpr.rt.A & 0xFF);
+        } else {
+            return switch (ri) {
+                .F => @panic("Cannot read register F as a word."),
+                .SW => self.SW.i,
+                .PC => self.PC,
+                else => self.gpr.asArray()[ri.asInt()],
+            };
+        }
+    }
+};
+
+pub const Machine = struct {
+    regs: RegTable = .{},
+
+    const Self = @This();
+
+    pub fn init() Self {
+        return .{};
     }
 };
