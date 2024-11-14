@@ -1,4 +1,5 @@
 const std = @import("std");
+const helper = @import("helper.zig");
 
 pub const RegIdx = enum(u4) {
     A = 0x0,
@@ -100,12 +101,82 @@ const RegTable = struct {
     }
 };
 
-pub const Machine = struct {
-    regs: RegTable = .{},
+/// Does not own buf
+const Mem = struct {
+    buf: [*]u8,
+
+    pub const MAX_ADDR = std.math.maxInt(u24);
 
     const Self = @This();
 
-    pub fn init() Self {
-        return .{};
+    pub fn get(self: *const Self, addr: u24, comptime T: type) T {
+        const size = helper.sizeOf(T);
+        // TODO: check address
+        var ret = std.mem.bytesToValue(T, self.buf[addr .. addr + size]);
+
+        if (@typeInfo(T) == .Int) {
+            ret = std.mem.bigToNative(T, ret);
+        }
+
+        return ret;
+    }
+
+    pub fn set(self: *Self, addr: u24, val: anytype) void {
+        const T: type = @TypeOf(val);
+        const size = helper.sizeOf(T);
+
+        // std.debug.print("addr = {X}\n", .{addr});
+
+        var v = val;
+
+        if (@typeInfo(T) == .Int) {
+            v = std.mem.nativeToBig(T, v);
+        }
+
+        const ptr = std.mem.bytesAsValue(T, self.buf[addr .. addr + size]);
+        ptr.* = v;
+    }
+
+    pub fn setF(self: *Self, addr: u24, val: f64) void {
+        const v: u48 = @truncate(@as(u64, @bitCast(val)) >> (@bitSizeOf(u64) - @bitSizeOf(u48)));
+        self.set(addr, v);
+    }
+
+    pub fn getF(self: *const Self, addr: u24) f64 {
+        return @bitCast(@as(u64, self.get(addr, u48)) << (@bitSizeOf(u64) - @bitSizeOf(u48)));
     }
 };
+
+pub const Machine = struct {
+    regs: RegTable = .{},
+    mem: Mem = undefined,
+
+    const Self = @This();
+
+    pub fn init(buf: [*]u8) Self {
+        return .{
+            .mem = .{
+                .buf = buf,
+            },
+        };
+    }
+};
+
+test "Mem.set, Mem.get" {
+    var buf = [_]u8{0} ** 20;
+    var mem = Mem{ .buf = &buf };
+
+    mem.set(0, @as(u24, 10));
+
+    try std.testing.expectEqual([_]u8{ 0, 0, 10 }, buf[0..3].*);
+
+    const v = mem.get(0, u24);
+
+    try std.testing.expectEqual(10, v);
+
+    mem.setF(0, 1.0);
+
+    const f = mem.getF(0);
+
+    try std.testing.expectEqual(1.0, f);
+}
