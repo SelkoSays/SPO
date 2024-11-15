@@ -153,14 +153,14 @@ const Mem = struct {
 pub const Machine = struct {
     regs: RegTable = .{},
     mem: Mem,
-    devs: Devices,
+    devs: *Devices,
 
     const Self = @This();
 
-    pub fn init(buf: [*]u8, devs: [*]?Device) Self {
+    pub fn init(buf: [*]u8, devs: *Devices) Self {
         return .{
             .mem = .{ .buf = buf },
-            .devs = .{ .devs = devs },
+            .devs = devs,
         };
     }
 };

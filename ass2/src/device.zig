@@ -5,6 +5,7 @@ var _buf: [6]u8 = [_]u8{ 0, 0, 0, 0, 0, 0 };
 
 pub const Device = struct {
     file: ?fs.File,
+    closable: bool = true,
 
     const Self = @This();
 
@@ -33,14 +34,20 @@ pub const Device = struct {
     pub fn write(self: *Self, val: u8) void {
         _ = self.file.?.write(&.{val}) catch 0;
     }
+
+    pub fn close(self: *Self) void {
+        if (self.file != null and self.closable) {
+            self.file.?.close();
+        }
+    }
 };
 
 pub const Devices = struct {
-    devs: [*]?Device,
+    devs: []?Device,
 
     const Self = @This();
 
-    pub fn init(devs: [*]?Device) Self {
+    pub fn init(devs: []?Device) Self {
         return .{
             .devs = devs,
         };
@@ -63,5 +70,13 @@ pub const Devices = struct {
     fn getName(n: u8) []const u8 {
         const name = std.fmt.bytesToHex([_]u8{n}, .upper);
         return std.fmt.bufPrint(&_buf, "{s}.dev", .{name[0..2]}) catch unreachable;
+    }
+
+    pub fn deinit(self: *Self) void {
+        for (self.devs) |*dev| {
+            if (dev.* != null) {
+                dev.*.?.close();
+            }
+        }
     }
 };
