@@ -1,6 +1,8 @@
 const std = @import("std");
 const helper = @import("helper.zig");
-const Device = @import("device.zig").Device;
+const dev = @import("device.zig");
+const Device = dev.Device;
+const Devices = dev.Devices;
 
 pub const RegIdx = enum(u4) {
     A = 0x0,
@@ -145,36 +147,6 @@ const Mem = struct {
 
     pub fn getF(self: *const Self, addr: u24) f64 {
         return @bitCast(@as(u64, self.get(addr, u48)) << (@bitSizeOf(u64) - @bitSizeOf(u48)));
-    }
-};
-
-const Devices = struct {
-    devs: [*]?Device,
-
-    const Self = @This();
-
-    pub fn init(devs: [*]?Device) Self {
-        return .{
-            .devs = devs,
-        };
-    }
-
-    pub fn setDevice(self: *Self, n: u8, dev: ?Device) void {
-        if (dev != null) self.devs[n] = dev;
-
-        self.devs[n] = Device.init(null, getName(n));
-    }
-
-    pub fn getDevice(self: *Self, n: u8) *Device {
-        if (self.devs[n]) |dev| return &dev;
-        self.devs[n] = Device.init(null, getName(n));
-        return &self.devs[n].?;
-    }
-
-    fn getName(n: u8) []const u8 {
-        const name = std.fmt.bytesToHex([_]u8{n}, .upper);
-        var buf: [6]u8 = [_]u8{ 0, 0, 0, 0, 0, 0 };
-        return std.fmt.bufPrint(&buf, "{s}.dev", .{name[0..2]}) catch unreachable;
     }
 };
 
