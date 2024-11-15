@@ -24,11 +24,9 @@ pub fn main() !void {
     // std.log.debug("Byte: {X}", .{b});
 
     var d = m.devs.getDevice(3);
-    d.write(72);
-    d.write(101);
-    d.write(108);
-    d.write(108);
-    d.write(111);
+    for ("Hello World!\n") |c| {
+        d.write(c);
+    }
 
     // m.mem.set(0, @as(u24, 1));
 

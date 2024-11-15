@@ -77,6 +77,7 @@ pub fn Devices(N: comptime_int) type {
             for (&self.devs) |*dev| {
                 if (dev.* != null) {
                     dev.*.?.close();
+                    dev.* = null;
                 }
             }
         }
