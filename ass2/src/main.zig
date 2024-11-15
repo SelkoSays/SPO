@@ -10,6 +10,8 @@ const Devices = device.Devices;
 pub fn main() !void {
     var buf = [_]u8{0} ** 20;
     var devs = Devices{ .devs = [_]?Device{null} ** 256 };
+    defer devs.deinit();
+    
     var m = Machine.init(&buf, &devs);
 
     m.devs.setDevice(0, Device{ .file = std.io.getStdIn(), .closable = false });
