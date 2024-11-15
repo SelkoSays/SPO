@@ -42,41 +42,43 @@ pub const Device = struct {
     }
 };
 
-pub const Devices = struct {
-    devs: []?Device,
+pub fn Devices(N: comptime_int) type {
+    return struct {
+        devs: [N]?Device = [_]?Device{null} ** N,
 
-    const Self = @This();
+        const Self = @This();
 
-    pub fn init(devs: []?Device) Self {
-        return .{
-            .devs = devs,
-        };
-    }
-
-    pub fn setDevice(self: *Self, n: u8, dev: ?Device) void {
-        if (dev != null) {
-            self.devs[n] = dev;
-        } else {
-            self.devs[n] = Device.init(null, getName(n));
+        pub fn init(devs: [N]?Device) Self {
+            return .{
+                .devs = devs,
+            };
         }
-    }
 
-    pub fn getDevice(self: *Self, n: u8) *Device {
-        if (self.devs[n] != null) return @constCast(&self.devs[n].?);
-        self.devs[n] = Device.init(null, getName(n));
-        return &self.devs[n].?;
-    }
-
-    fn getName(n: u8) []const u8 {
-        const name = std.fmt.bytesToHex([_]u8{n}, .upper);
-        return std.fmt.bufPrint(&_buf, "{s}.dev", .{name[0..2]}) catch unreachable;
-    }
-
-    pub fn deinit(self: *Self) void {
-        for (self.devs) |*dev| {
-            if (dev.* != null) {
-                dev.*.?.close();
+        pub fn setDevice(self: *Self, n: u8, dev: ?Device) void {
+            if (dev != null) {
+                self.devs[n] = dev;
+            } else {
+                self.devs[n] = Device.init(null, getName(n));
             }
         }
-    }
-};
+
+        pub fn getDevice(self: *Self, n: u8) *Device {
+            if (self.devs[n] != null) return @constCast(&self.devs[n].?);
+            self.devs[n] = Device.init(null, getName(n));
+            return &self.devs[n].?;
+        }
+
+        fn getName(n: u8) []const u8 {
+            const name = std.fmt.bytesToHex([_]u8{n}, .upper);
+            return std.fmt.bufPrint(&_buf, "{s}.dev", .{name[0..2]}) catch unreachable;
+        }
+
+        pub fn deinit(self: *Self) void {
+            for (&self.devs) |*dev| {
+                if (dev.* != null) {
+                    dev.*.?.close();
+                }
+            }
+        }
+    };
+}
