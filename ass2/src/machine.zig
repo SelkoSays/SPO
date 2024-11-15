@@ -22,7 +22,7 @@ pub const RegIdx = enum(u4) {
     }
 };
 
-const RegTable = struct {
+const Regs = struct {
     gpr: GPR = .{},
     F: f64 = 0.0,
     PC: u24 = 0, // program counter
@@ -151,7 +151,7 @@ const Mem = struct {
 };
 
 pub const Machine = struct {
-    regs: RegTable = .{},
+    regs: Regs = .{},
     mem: Mem,
     devs: *Devices(256),
 
@@ -165,13 +165,31 @@ pub const Machine = struct {
     }
 };
 
+test "Regs.set, Regs.get" {
+    var m = Machine.init(undefined, undefined);
+
+    m.regs.set(.A, 1);
+    try std.testing.expectEqual(1, m.regs.gpr.A);
+    try std.testing.expectEqual(1, m.regs.get(.A, u24));
+
+    m.regs.set(.B, 2);
+    try std.testing.expectEqual(2, m.regs.gpr.B);
+    try std.testing.expectEqual(2, m.regs.get(.B, u24));
+
+    try std.testing.expectEqualSlices(u24, &.{ 1, 0, 0, 2, 0, 0 }, m.regs.gpr.asArray()[0..6]);
+
+    m.regs.set(.F, @as(f64, 1.1));
+    try std.testing.expectEqual(1.1, m.regs.F);
+    try std.testing.expectEqual(1.1, m.regs.get(.F, f64));
+}
+
 test "Mem.set, Mem.get" {
     var buf = [_]u8{0} ** 20;
     var mem = Mem{ .buf = &buf };
 
     mem.set(0, @as(u24, 10));
 
-    try std.testing.expectEqual([_]u8{ 0, 0, 10 }, buf[0..3].*);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 0, 10 }, buf[0..3]);
 
     const v = mem.get(0, u24);
 
@@ -180,6 +198,8 @@ test "Mem.set, Mem.get" {
     mem.setF(0, 1.0);
 
     const f = mem.getF(0);
-
     try std.testing.expectEqual(1.0, f);
+
+    const expected = std.mem.toBytes(std.mem.nativeToBig(u48, @truncate(@as(u64, @bitCast(@as(f64, 1.0))) >> 16)))[0..helper.sizeOf(u48)];
+    try std.testing.expectEqualSlices(u8, expected, buf[0..helper.sizeOf(u48)]);
 }
