@@ -19,11 +19,23 @@ pub fn build(b: *std.Build) !void {
     const fmt = b.step("fmt", "Formats files in src");
     const fmt_check = b.step("fmt-check", "Formats files in src");
 
+    const is_exe = b.addExecutable(.{
+        .name = "instruction_set",
+        .root_source_file = b.path("tools/is_gen.zig"),
+        .target = b.host,
+    });
+    const is_exe_step = b.addRunArtifact(is_exe);
+
     const exe = b.addExecutable(.{
         .name = "ass2",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+    });
+
+    exe.step.dependOn(&is_exe_step.step);
+    exe.root_module.addAnonymousImport("instruction_set", .{
+        .root_source_file = b.path("tools/instruction_set.zig"),
     });
 
     const check_comp = try b.allocator.create(std.Build.Step.Compile);
