@@ -140,6 +140,36 @@ const Mem = struct {
         ptr.* = v;
     }
 
+    pub fn getE(self: *const Self, addr: u24, comptime T: type, comptime enidan: std.builtin.Endian) T {
+        const size = helper.sizeOf(T);
+        // TODO: check address
+        var ret = std.mem.bytesToValue(T, self.buf[addr .. addr + size]);
+
+        if (@typeInfo(T) == .Int) {
+            ret = std.mem.bigToNative(T, ret);
+            ret = std.mem.nativeTo(T, ret, enidan);
+        }
+
+        return ret;
+    }
+
+    pub fn setE(self: *Self, addr: u24, val: anytype, comptime enidan: std.builtin.Endian) void {
+        const T: type = @TypeOf(val);
+        const size = helper.sizeOf(T);
+
+        // std.debug.print("addr = {X}\n", .{addr});
+
+        var v = val;
+
+        if (@typeInfo(T) == .Int) {
+            // v = std.mem.nativeToBig(T, v);
+            v = std.mem.nativeTo(T, v, enidan);
+        }
+
+        const ptr = std.mem.bytesAsValue(T, self.buf[addr .. addr + size]);
+        ptr.* = v;
+    }
+
     pub fn setF(self: *Self, addr: u24, val: f64) void {
         const v: u48 = @truncate(@as(u64, @bitCast(val)) >> (@bitSizeOf(u64) - @bitSizeOf(u48)));
         self.set(addr, v);
