@@ -51,7 +51,7 @@ const container = [45][3]?Entry{
 pub const opTable = OpTable { .container = container, .cap = 45 };
 const Entry = struct {
     key: Opcode,
-    val: u2,
+    val: u3,
 };
 
 const OpTable = struct {
@@ -64,7 +64,7 @@ const OpTable = struct {
         return @intFromEnum(k) % self.cap;
     }
     
-    pub fn get(self: *const Self, k: Opcode) ?u2 {
+    pub fn get(self: *const Self, k: Opcode) ?u3 {
         const hash_ = self.hash(k);
     
         for (self.container[hash_]) |*e| {
@@ -145,3 +145,17 @@ pub const Opcode = enum(u8) {
     TIXR = 0xB8,
     WD = 0xDC,
 };
+
+pub const Fmt = packed union {
+    f1: Fmt1,
+    f2: Fmt2,
+    fs: FmtSIC,
+    f3: Fmt3,
+    f4: Fmt4,
+};
+
+const Fmt1 = packed struct(u32) { _pad: u24, opcode: u8 };
+const Fmt2 = packed struct(u32) { _pad: u16, r2: u4, r1: u4, opcode: u8 };
+const FmtSIC = packed struct(u32) { _pad: u8, addr: u15, x: bool, i: bool, n: bool, opcode: u6 };
+const Fmt3 = packed struct(u32) { _pad: u8, addr: u12, e: bool, p: bool, b: bool, x: bool, i: bool, n: bool, opcode: u6 };
+const Fmt4 = packed struct(u32) { addr: u20, e: bool, p: bool, b: bool, x: bool, i: bool, n: bool, opcode: u6 };

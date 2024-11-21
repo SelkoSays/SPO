@@ -7,7 +7,7 @@ const device = @import("device.zig");
 const Device = device.Device;
 const Devices = device.Devices;
 
-const Fmt = @import("instructions.zig").Fmt;
+// const Fmt = @import("instructions.zig").Fmt;
 
 pub fn main() !void {
     var buf = [_]u8{0} ** 20;
@@ -21,8 +21,8 @@ pub fn main() !void {
     // buf[1] = 0x00;
     // buf[2] = 0x19;
 
-    const fmt: Fmt = @bitCast(m.mem.getE(0, u32, .little));
-    std.debug.print("fmt = {any}\n", .{fmt.f3});
+    // const fmt: Fmt = @bitCast(m.mem.getE(0, u32, .little));
+    // std.debug.print("fmt = {any}\n", .{fmt.f3});
 
     m.devs.setDevice(0, Device{ .file = std.io.getStdIn(), .closable = false });
     m.devs.setDevice(1, Device{ .file = std.io.getStdOut(), .closable = false });
