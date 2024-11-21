@@ -1,5 +1,5 @@
 const std = @import("std");
-const helper = @import("helper.zig");
+const hlp = @import("helper.zig");
 const dev = @import("device.zig");
 const Device = dev.Device;
 const Devices = dev.Devices;
@@ -116,7 +116,7 @@ const Mem = struct {
     const Self = @This();
 
     pub fn get(self: *const Self, addr: u24, comptime T: type) T {
-        const size = helper.sizeOf(T);
+        const size = hlp.sizeOf(T);
         // TODO: check address
         var ret = std.mem.bytesToValue(T, self.buf[addr .. addr + size]);
 
@@ -129,7 +129,7 @@ const Mem = struct {
 
     pub fn set(self: *Self, addr: u24, val: anytype) void {
         const T: type = @TypeOf(val);
-        const size = helper.sizeOf(T);
+        const size = hlp.sizeOf(T);
 
         // std.debug.print("addr = {X}\n", .{addr});
 
@@ -144,7 +144,7 @@ const Mem = struct {
     }
 
     pub fn getE(self: *const Self, addr: u24, comptime T: type, comptime enidan: std.builtin.Endian) T {
-        const size = helper.sizeOf(T);
+        const size = hlp.sizeOf(T);
         // TODO: check address
         var ret = std.mem.bytesToValue(T, self.buf[addr .. addr + size]);
 
@@ -158,7 +158,7 @@ const Mem = struct {
 
     pub fn setE(self: *Self, addr: u24, val: anytype, comptime enidan: std.builtin.Endian) void {
         const T: type = @TypeOf(val);
-        const size = helper.sizeOf(T);
+        const size = hlp.sizeOf(T);
 
         // std.debug.print("addr = {X}\n", .{addr});
 
@@ -205,34 +205,40 @@ pub const Machine = struct {
             break :blk @enumFromInt(instr.f3.opcode);
         };
 
-        const instr_size = Is.opTable.get(opcode) orelse 0;
+        var instr_size = Is.opTable.get(opcode) orelse 0;
+        if (instr_size > 2 and instr.f3.e) {
+            instr_size += 1;
+        }
 
-        var getFn = Self.getNormal;
-        var getFnB = Self.getNormalB;
+        var getFn = &Self.getNormal;
+        var getFnB = &Self.getNormalB;
+        var getFnF = &Self.getNormalF;
 
         if (!instr.f3.n and instr.f3.i) {
-            getFn = Self.getImmidiate;
-            getFnB = Self.getImmidiateB;
+            getFn = &Self.getImmidiate;
+            getFnB = &Self.getImmidiateB;
+            getFnF = &Self.getImmidiateF;
         } else if (instr.f3.n and !instr.f3.i) {
-            getFn = Self.getIndirect;
-            getFnB = Self.getIndirectB;
+            getFn = &Self.getIndirect;
+            getFnB = &Self.getIndirectB;
+            getFnF = &Self.getIndirectF;
         }
 
         const sic = !instr.f3.n and !instr.f3.i;
 
-        const n = self.getAddr(instr, instr_size, sic, getFn);
+        const n = self.getAddr(instr, instr_size, sic, u24, getFn);
 
         switch (opcode) {
             .LDA => self.regs.gpr.A = n,
             .LDB => self.regs.gpr.B = n,
-            .LDCH => self.regs.gpr.A |= self.getAddrB(instr, instr_size, sic, getFnB),
-            // .LDF => self.regs.gpr.F = n ,
+            .LDCH => self.regs.gpr.A |= self.getAddr(instr, instr_size, sic, u8, getFnB),
+            .LDF => self.regs.F = self.getAddrF(instr, instr_size, sic, getFnF),
             .LDL => self.regs.gpr.L = n,
             .LDS => self.regs.gpr.S = n,
             .LDT => self.regs.gpr.T = n,
             .LDX => self.regs.gpr.X = n,
             .ADD => self.regs.gpr.A += n,
-            // .ADDF => {},
+            .ADDF => self.regs.F += self.getAddrF(instr, instr_size, sic, getFnF),
             .ADDR => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
@@ -241,21 +247,24 @@ pub const Machine = struct {
             .AND => self.regs.gpr.A &= n,
             .CLEAR => self.regs.set(@enumFromInt(instr.f2.r1), @as(u24, 0)),
             .COMP => self.regs.SW.s.cc = comp(self.regs.gpr.A, n),
-            // .COMPF => {},
+            .COMPF => {
+                const f = self.getAddrF(instr, instr_size, sic, getFnF);
+                self.regs.SW.s.cc = comp(self.regs.F, f);
+            },
             .COMPR => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
                 self.regs.SW.s.cc = comp(r1, r2);
             },
             .DIV => self.regs.gpr.A /= n,
-            // .DIVF => {},
+            .DIVF => self.regs.F /= self.getAddrF(instr, instr_size, sic, getFnF),
             .DIVR => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
                 self.regs.set(@enumFromInt(instr.f2.r2), r2 / r1);
             },
-            .FIX => {},
-            .FLOAT => {},
+            .FIX => self.regs.gpr.A = @intFromFloat(self.regs.F),
+            .FLOAT => self.regs.F = @floatFromInt(self.regs.gpr.A),
             // .HIO => {},
             .J => {
                 self.regs.PC = n;
@@ -275,28 +284,37 @@ pub const Machine = struct {
             },
             // .LPS => {},
             .MUL => self.regs.gpr.A *= n,
-            // .MULF => {},
+            .MULF => self.regs.F *= self.getAddrF(instr, instr_size, sic, getFnF),
             .MULR => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
                 self.regs.set(@enumFromInt(instr.f2.r2), r2 * r1);
             },
-            // .NORM => {},
+            // .NORM => {}, ???
             .OR => self.regs.gpr.A |= n,
-            .RD => {},
+            .RD => {
+                const dev_ = self.getAddr(instr, instr_size, sic, u8, getFnB);
+                self.regs.gpr.A = self.devs.getDevice(dev_).read();
+            },
             .RMO => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 self.regs.set(@enumFromInt(instr.f2.r2), r1);
             },
             .RSUB => self.regs.PC = self.regs.gpr.L,
-            .SHIFTL => {},
-            .SHIFTR => {},
+            .SHIFTL => {
+                const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
+                self.regs.set(@enumFromInt(instr.f2.r2), r1 << instr.f2.r2);
+            },
+            .SHIFTR => {
+                const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
+                self.regs.set(@enumFromInt(instr.f2.r2), r1 >> instr.f2.r2);
+            },
             // .SIO => {},
             // .SSK => {},
             .STA => self.mem.set(n, self.regs.gpr.A),
             .STB => self.mem.set(n, self.regs.gpr.B),
             .STCH => self.mem.set(n, @as(u8, @truncate(self.regs.gpr.A & 0xFF))),
-            // .STF => {},
+            .STF => self.mem.setF(n, self.regs.F),
             // .STI => {},
             .STL => self.mem.set(n, self.regs.gpr.L),
             .STS => self.mem.set(n, self.regs.gpr.S),
@@ -304,14 +322,20 @@ pub const Machine = struct {
             .STT => self.mem.set(n, self.regs.gpr.T),
             .STX => self.mem.set(n, self.regs.gpr.X),
             .SUB => self.regs.gpr.A -= n,
-            // .SUBF => {},
+            .SUBF => self.regs.F -= self.getAddrF(instr, instr_size, sic, getFnF),
             .SUBR => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
                 self.regs.set(@enumFromInt(instr.f2.r2), r2 - r1);
             },
             // .SVC => {},
-            .TD => {},
+            .TD => {
+                const dev_ = self.getAddr(instr, instr_size, sic, u8, getFnB);
+                const t = self.devs.getDevice(dev_).@"test"();
+                if (!t) {
+                    self.regs.SW.s.cc = .Greater;
+                }
+            },
             // .TIO => {},
             .TIX => {
                 self.regs.gpr.X += 1;
@@ -322,11 +346,22 @@ pub const Machine = struct {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 self.regs.SW.s.cc = comp(self.regs.gpr.X, r1);
             },
-            .WD => {},
+            .WD => {
+                const dev_ = self.getAddr(instr, instr_size, sic, u8, getFnB);
+                self.devs.getDevice(dev_).write(@truncate(self.regs.gpr.A & 0xFF));
+            },
+            else => @panic("unhandeled instruction"),
         }
+
+        self.regs.PC += instr_size;
     }
 
-    fn comp(v1: u24, v2: u24) Ord {
+    fn notSicErr(self: *Self) void {
+        // TODO: handle
+        _ = self;
+    }
+
+    fn comp(v1: anytype, v2: @TypeOf(v1)) Ord {
         if (v1 < v2) {
             return .Less;
         } else if (v1 > v2) {
@@ -336,64 +371,69 @@ pub const Machine = struct {
         }
     }
 
-    fn getAddr(self: *Self, instr: Is.Fmt, instr_size: u3, sic: bool, getFn: fn (*Self, u24) u24) u24 {
+    fn getAddr(self: *Self, instr: Is.Fmt, instr_size: u3, sic: bool, comptime T: type, getFn: *const fn (*Self, u24) T) T {
         if (instr_size > 2) {
-            var plus = self.regs.gpr.X * instr.fs.x;
+            var plus = self.regs.gpr.X * @intFromBool(instr.fs.x);
 
             if (sic) {
                 return getFn(self, instr.fs.addr + plus);
             }
 
             if (instr.f3.b) {
-                plus += self.regs.gpr.B * instr.f3.b;
+                plus += self.regs.gpr.B * @intFromBool(instr.f3.b);
             }
 
             if (instr.f3.p) {
-                plus += self.regs.PC * instr.f3.p;
+                plus += self.regs.PC * @intFromBool(instr.f3.p);
             }
 
             if (instr.f3.e) {
                 if (instr.f4.p) {
-                    return getFn(self, @as(i20, @bitCast(instr.f4.addr)) + plus);
+                    return getFn(self, @truncate(hlp.as(hlp.as(instr.f4.addr, i20) + @as(i25, plus), u25)));
                 }
                 return getFn(self, instr.f4.addr + plus);
             }
 
             if (instr.f3.p) {
-                return getFn(self, @as(i12, @bitCast(instr.f3.addr)) + plus);
+                return getFn(self, @truncate(hlp.as(hlp.as(instr.f3.addr, i12) + @as(i25, plus), u25)));
             }
             return getFn(self, instr.f3.addr + plus);
         }
         return 0;
     }
 
-    fn getAddrB(self: *Self, instr: Is.Fmt, instr_size: u3, sic: bool, getFn: fn (*Self, u24) u8) u24 {
+    fn getAddrF(self: *Self, instr: Is.Fmt, instr_size: u3, sic: bool, getFn: *const fn (*Self, u24) f64) f64 {
         if (instr_size > 2) {
-            var plus = self.regs.gpr.X * instr.fs.x;
+            var plus = self.regs.gpr.X * @intFromBool(instr.fs.x);
 
             if (sic) {
-                return getFn(self, instr.fs.addr + plus);
+                self.notSicErr();
+                return 0;
             }
 
             if (instr.f3.b) {
-                plus += self.regs.gpr.B * instr.f3.b;
+                plus += self.regs.gpr.B * @intFromBool(instr.f3.b);
             }
 
             if (instr.f3.p) {
-                plus += self.regs.PC * instr.f3.p;
+                plus += self.regs.PC * @intFromBool(instr.f3.p);
             }
 
             if (instr.f3.e) {
                 if (instr.f4.p) {
-                    return getFn(self, @as(i20, @bitCast(instr.f4.addr)) + plus);
+                    const a: u24 = @truncate(hlp.as(hlp.as(instr.f4.addr, i20) + @as(i25, plus), u25));
+                    return getFn(self, if (getFn == Self.getImmidiateF) a << 4 else a);
                 }
                 return getFn(self, instr.f4.addr + plus);
             }
 
             if (instr.f3.p) {
-                return getFn(self, @as(i12, @bitCast(instr.f3.addr)) + plus);
+                const a: u24 = @truncate(hlp.as(hlp.as(instr.f3.addr, i12) + @as(i25, plus), u25));
+                return getFn(self, if (getFn == Self.getImmidiateF) a << 12 else a);
             }
-            return getFn(self, instr.f3.addr + plus);
+
+            const a: u24 = instr.f3.addr + plus;
+            return getFn(self, if (getFn == Self.getImmidiateF) a << 12 else a);
         }
         return 0;
     }
@@ -411,9 +451,23 @@ pub const Machine = struct {
         return self.mem.get(self.mem.get(addr, u24), u24);
     }
 
+    fn getImmidiateF(self: *Self, val: u24) f64 {
+        _ = self;
+        // unsupported ?
+        return @bitCast(@as(u64, val) << 40);
+    }
+
+    fn getNormalF(self: *Self, addr: u24) f64 {
+        return self.mem.getF(addr);
+    }
+
+    fn getIndirectF(self: *Self, addr: u24) f64 {
+        return self.mem.getF(self.mem.get(addr, u24));
+    }
+
     fn getImmidiateB(self: *Self, val: u24) u8 {
         _ = self;
-        return @truncate(val);
+        return @truncate(val & 0xFF);
     }
 
     fn getNormalB(self: *Self, addr: u24) u8 {
@@ -422,11 +476,6 @@ pub const Machine = struct {
 
     fn getIndirectB(self: *Self, addr: u24) u8 {
         return self.mem.get(self.mem.get(addr, u24), u8);
-    }
-
-    fn peek(self: *Self) u8 {
-        // TODO: handle invalid address
-        return self.mem.buf[self.regs.PC];
     }
 };
 
@@ -465,6 +514,6 @@ test "Mem.set, Mem.get" {
     const f = mem.getF(0);
     try std.testing.expectEqual(1.0, f);
 
-    const expected = std.mem.toBytes(std.mem.nativeToBig(u48, @truncate(@as(u64, @bitCast(@as(f64, 1.0))) >> 16)))[0..helper.sizeOf(u48)];
-    try std.testing.expectEqualSlices(u8, expected, buf[0..helper.sizeOf(u48)]);
+    const expected = std.mem.toBytes(std.mem.nativeToBig(u48, @truncate(@as(u64, @bitCast(@as(f64, 1.0))) >> 16)))[0..hlp.sizeOf(u48)];
+    try std.testing.expectEqualSlices(u8, expected, buf[0..hlp.sizeOf(u48)]);
 }

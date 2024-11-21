@@ -141,10 +141,10 @@ const HashMap = struct {
             \\    pub fn get(self: *const Self, k: Opcode) ?u3 {
             \\        const hash_ = self.hash(k);
             \\    
-            \\        for (self.container[hash_]) |*e| {
+            \\        for (&self.container[hash_]) |*e| {
             \\            if (e.* == null) break;
-            \\            if (e.key == k) {
-            \\                return e.val;
+            \\            if (e.*.?.key == k) {
+            \\                return e.*.?.val;
             \\            }
             \\        }
             \\    
@@ -154,9 +154,9 @@ const HashMap = struct {
             \\    pub fn contains(self: *const Self, k: Opcode) bool {
             \\        const hash_ = self.hash(k);
             \\    
-            \\        for (self.container[hash_]) |*e| {
+            \\        for (&self.container[hash_]) |*e| {
             \\            if (e.* == null) break;
-            \\            if (e.key == k) {
+            \\            if (e.*.?.key == k) {
             \\                return true;
             \\            }
             \\        }
