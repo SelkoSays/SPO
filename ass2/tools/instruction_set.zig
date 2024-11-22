@@ -144,6 +144,13 @@ pub const Opcode = enum(u8) {
     TIX = 0x2C,
     TIXR = 0xB8,
     WD = 0xDC,
+
+    const Self = @This();
+    
+    pub fn int(self: Self) u8 {
+        return @intFromEnum(self);
+    }
+
 };
 
 pub const Fmt = packed union {
@@ -154,8 +161,8 @@ pub const Fmt = packed union {
     f4: Fmt4,
 };
 
-const Fmt1 = packed struct(u32) { _pad: u24, opcode: u8 };
-const Fmt2 = packed struct(u32) { _pad: u16, r2: u4, r1: u4, opcode: u8 };
-const FmtSIC = packed struct(u32) { _pad: u8, addr: u15, x: bool, i: bool, n: bool, opcode: u6 };
-const Fmt3 = packed struct(u32) { _pad: u8, addr: u12, e: bool, p: bool, b: bool, x: bool, i: bool, n: bool, opcode: u6 };
-const Fmt4 = packed struct(u32) { addr: u20, e: bool, p: bool, b: bool, x: bool, i: bool, n: bool, opcode: u6 };
+const Fmt1 = packed struct(u32) { opcode: u8, _pad: u24 };
+const Fmt2 = packed struct(u32) { opcode: u8, r1: u4, r2: u4, _pad: u16 };
+const FmtSIC = packed struct(u32) { opcode: u6, n: bool, i: bool, x: bool, addr: u15, _pad: u8 };
+const Fmt3 = packed struct(u32) { opcode: u6, n: bool, i: bool, x: bool, b: bool, p: bool, e: bool, addr: u12, _pad: u8 };
+const Fmt4 = packed struct(u32) { opcode: u6, n: bool, i: bool, x: bool, b: bool, p: bool, e: bool, addr: u20 };

@@ -109,7 +109,7 @@ const Regs = struct {
 
 /// Does not own buf
 const Mem = struct {
-    buf: []u8,
+    buf: [*]u8,
 
     pub const MAX_ADDR = 1 << 20; // 1MB
 
@@ -146,7 +146,7 @@ const Mem = struct {
     pub fn getE(self: *const Self, addr: u24, comptime T: type, comptime enidan: std.builtin.Endian) T {
         const size = hlp.sizeOf(T);
         // TODO: check address
-        var ret = std.mem.bytesToValue(T, self.buf[addr .. addr + size]);
+        var ret = std.mem.bytesAsValue(T, self.buf[addr .. addr + size]).*;
 
         if (@typeInfo(T) == .Int) {
             ret = std.mem.bigToNative(T, ret);
@@ -192,7 +192,7 @@ pub const Machine = struct {
 
     const Self = @This();
 
-    pub fn init(buf: []u8, devs: *OSDevices) Self {
+    pub fn init(buf: [*]u8, devs: *OSDevices) Self {
         return .{
             .mem = .{ .buf = buf },
             .devs = devs,
@@ -200,9 +200,9 @@ pub const Machine = struct {
     }
 
     pub fn step(self: *Self) void {
-        const instr = self.mem.get(self.regs.PC, Is.Fmt);
-        const opcode: Is.Opcode = std.meta.intToEnum(Is.Opcode, instr.f1.opcode) catch blk: {
-            break :blk @enumFromInt(instr.f3.opcode);
+        const instr = self.mem.get(self.regs.PC, Fmt);
+        const opcode: Opcode = std.meta.intToEnum(Opcode, instr.f3.opcode) catch blk: {
+            break :blk @enumFromInt(instr.f1.opcode);
         };
 
         var instr_size = Is.opTable.get(opcode) orelse 0;
@@ -516,4 +516,95 @@ test "Mem.set, Mem.get" {
 
     const expected = std.mem.toBytes(std.mem.nativeToBig(u48, @truncate(@as(u64, @bitCast(@as(f64, 1.0))) >> 16)))[0..hlp.sizeOf(u48)];
     try std.testing.expectEqualSlices(u8, expected, buf[0..hlp.sizeOf(u48)]);
+}
+
+test "Machine.step" {
+    var buf = [_]u8{0} ** 100;
+
+    var m = Machine.init(&buf, undefined);
+
+    m.mem.set(10, @as(u24, 20));
+
+    try std.testing.expectEqual(20, m.mem.get(10, u24));
+
+    m.mem.set(0, Is.Fmt{ .f3 = .{
+        .opcode = @truncate(Opcode.LDA.int()),
+        .n = false,
+        .i = true,
+        .x = false,
+        .b = false,
+        .p = false,
+        .e = false,
+        .addr = 1,
+        ._pad = 0,
+    } });
+
+    try std.testing.expectEqual(@as(u32, @bitCast(Is.Fmt{ .f3 = .{
+        .opcode = @truncate(Opcode.LDA.int()),
+        .n = false,
+        .i = true,
+        .x = false,
+        .b = false,
+        .p = false,
+        .e = false,
+        .addr = 1,
+        ._pad = 0,
+    } })), m.mem.getE(0, u32, .big));
+
+    m.mem.set(3, Is.Fmt{ .f3 = .{
+        .opcode = @truncate(Opcode.ADD.int()),
+        .n = true,
+        .i = true,
+        .x = false,
+        .b = false,
+        .p = false,
+        .e = false,
+        .addr = 10,
+        ._pad = 0,
+    } });
+
+    try std.testing.expectEqual(@as(u32, @bitCast(Is.Fmt{ .f3 = .{
+        .opcode = @truncate(Opcode.ADD.int()),
+        .n = true,
+        .i = true,
+        .x = false,
+        .b = false,
+        .p = false,
+        .e = false,
+        .addr = 10,
+        ._pad = 0,
+    } })), m.mem.getE(3, u32, .big));
+
+    m.mem.set(6, Is.Fmt{ .f3 = .{
+        .opcode = @truncate(Opcode.STA.int()),
+        .n = false,
+        .i = true,
+        .x = false,
+        .b = false,
+        .p = false,
+        .e = false,
+        .addr = 10,
+        ._pad = 0,
+    } });
+
+    try std.testing.expectEqual(@as(u32, @bitCast(Is.Fmt{ .f3 = .{
+        .opcode = @truncate(Opcode.STA.int()),
+        .n = false,
+        .i = true,
+        .x = false,
+        .b = false,
+        .p = false,
+        .e = false,
+        .addr = 10,
+        ._pad = 0,
+    } })), m.mem.getE(6, u32, .big));
+
+    m.step();
+    try std.testing.expectEqual(1, m.regs.gpr.A);
+
+    m.step();
+    try std.testing.expectEqual(21, m.regs.gpr.A);
+
+    m.step();
+    try std.testing.expectEqual(21, m.mem.get(10, u24));
 }
