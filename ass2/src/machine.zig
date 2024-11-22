@@ -231,14 +231,20 @@ pub const Machine = struct {
         switch (opcode) {
             .LDA => self.regs.gpr.A = n,
             .LDB => self.regs.gpr.B = n,
-            .LDCH => self.regs.gpr.A |= self.getAddr(instr, instr_size, sic, u8, getFnB),
+            .LDCH => {
+                self.regs.gpr.A &= ~@as(u24, 0xFF);
+                self.regs.gpr.A |= self.getAddr(instr, instr_size, sic, u8, getFnB);
+            },
             .LDF => self.regs.F = self.getAddrF(instr, instr_size, sic, getFnF),
             .LDL => self.regs.gpr.L = n,
             .LDS => self.regs.gpr.S = n,
             .LDT => self.regs.gpr.T = n,
             .LDX => self.regs.gpr.X = n,
             .ADD => self.regs.gpr.A += n,
-            .ADDF => self.regs.F += self.getAddrF(instr, instr_size, sic, getFnF),
+            .ADDF => {
+                self.regs.F += self.getAddrF(instr, instr_size, sic, getFnF);
+                self.regs.F = hlp.chopFloat(self.regs.F);
+            },
             .ADDR => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
@@ -257,18 +263,22 @@ pub const Machine = struct {
                 self.regs.SW.s.cc = comp(r1, r2);
             },
             .DIV => self.regs.gpr.A /= n,
-            .DIVF => self.regs.F /= self.getAddrF(instr, instr_size, sic, getFnF),
+            .DIVF => {
+                self.regs.F /= self.getAddrF(instr, instr_size, sic, getFnF);
+                self.regs.F = hlp.chopFloat(self.regs.F);
+            },
             .DIVR => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
                 self.regs.set(@enumFromInt(instr.f2.r2), r2 / r1);
             },
             .FIX => self.regs.gpr.A = @intFromFloat(self.regs.F),
-            .FLOAT => self.regs.F = @floatFromInt(self.regs.gpr.A),
-            // .HIO => {},
-            .J => {
-                self.regs.PC = n;
+            .FLOAT => {
+                self.regs.F = @floatFromInt(self.regs.gpr.A);
+                self.regs.F = hlp.chopFloat(self.regs.F);
             },
+            // .HIO => {},
+            .J => self.regs.PC = n,
             .JEQ => if (self.regs.SW.s.cc == .Equal) {
                 self.regs.PC = n;
             },
@@ -284,7 +294,10 @@ pub const Machine = struct {
             },
             // .LPS => {},
             .MUL => self.regs.gpr.A *= n,
-            .MULF => self.regs.F *= self.getAddrF(instr, instr_size, sic, getFnF),
+            .MULF => {
+                self.regs.F *= self.getAddrF(instr, instr_size, sic, getFnF);
+                self.regs.F = hlp.chopFloat(self.regs.F);
+            },
             .MULR => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
@@ -322,7 +335,10 @@ pub const Machine = struct {
             .STT => self.mem.set(n, self.regs.gpr.T),
             .STX => self.mem.set(n, self.regs.gpr.X),
             .SUB => self.regs.gpr.A -= n,
-            .SUBF => self.regs.F -= self.getAddrF(instr, instr_size, sic, getFnF),
+            .SUBF => {
+                self.regs.F -= self.getAddrF(instr, instr_size, sic, getFnF);
+                self.regs.F = hlp.chopFloat(self.regs.F);
+            },
             .SUBR => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
