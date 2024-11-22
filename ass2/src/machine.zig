@@ -187,6 +187,8 @@ pub const Machine = struct {
     regs: Regs = .{},
     mem: Mem,
     devs: *OSDevices,
+    clock_speed: u64 = 1, // [kHz]
+    stopped: bool = true,
 
     const OSDevices = Devices(256);
 
@@ -197,6 +199,40 @@ pub const Machine = struct {
             .mem = .{ .buf = buf },
             .devs = devs,
         };
+    }
+
+    pub fn setSpeed(self: *Self, speed_kHz: u64) void {
+        self.clock_speed = speed_kHz;
+        if (speed_kHz == 0) {
+            self.clock_speed += 1;
+        }
+    }
+
+    inline fn sleep_time(self: *Self) u64 {
+        return std.time.us_per_s / self.clock_speed;
+    }
+
+    pub fn start(self: *Self) void {
+        self.stopped = false;
+        while (!self.stopped) {
+            const t_start = std.time.microTimestamp();
+            self.step();
+            const elapsed = std.time.microTimestamp() - t_start;
+            std.time.sleep((self.sleep_time() -| @as(u64, @intCast(elapsed))) * std.time.ns_per_us);
+        }
+    }
+
+    pub fn stop(self: *Self) void {
+        self.stopped = true;
+    }
+
+    pub fn nStep(self: *Self, n: u32) void {
+        var nn = n;
+        self.stopped = true;
+        while (!self.stopped and nn > 0) {
+            self.step();
+            nn -= 1;
+        }
     }
 
     pub fn step(self: *Self) void {
@@ -278,7 +314,10 @@ pub const Machine = struct {
                 self.regs.F = hlp.chopFloat(self.regs.F);
             },
             // .HIO => {},
-            .J => self.regs.PC = n,
+            .J => {
+                if (self.regs.PC == n) self.stop();
+                self.regs.PC = n;
+            },
             .JEQ => if (self.regs.SW.s.cc == .Equal) {
                 self.regs.PC = n;
             },
