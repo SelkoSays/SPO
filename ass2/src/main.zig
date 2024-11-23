@@ -29,13 +29,20 @@ const Runner = struct {
 var runner: Runner = .{};
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    // defer _ = gpa.deinit();
 
-    const alloc = gpa.allocator();
-    var buf = try alloc.alloc(u8, 1 << 24);
+    // const alloc = gpa.allocator();
+    // var buf = try alloc.alloc(u8, 1 << 24);
 
-    runner.M = Machine.init(&buf, undefined);
+    // runner.M = Machine.init(&buf, undefined);
+
+    const str = "Hello   World    a=b";
+    var it = std.mem.tokenizeAny(u8, str, &std.ascii.whitespace);
+
+    while (it.next()) |s| {
+        std.debug.print("'{s}'\n", .{s});
+    }
 }
 
 fn execute_machine() void {
