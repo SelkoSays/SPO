@@ -10,6 +10,8 @@ const Devices = device.Devices;
 const Is = @import("instruction_set");
 const Opcode = Is.Opcode;
 
+const tui = @import("tui.zig");
+
 const Runner = struct {
     M: Machine = undefined,
     m: std.Thread.Mutex = .{},
@@ -29,20 +31,17 @@ const Runner = struct {
 var runner: Runner = .{};
 
 pub fn main() !void {
-    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    // defer _ = gpa.deinit();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
 
-    // const alloc = gpa.allocator();
-    // var buf = try alloc.alloc(u8, 1 << 24);
+    const alloc = gpa.allocator();
+    const buf = try alloc.alloc(u8, 1 << 24);
+    defer alloc.free(buf);
 
-    // runner.M = Machine.init(&buf, undefined);
+    runner.M = Machine.init(@ptrCast(buf), undefined);
 
-    const str = "Hello   World    a=b";
-    var it = std.mem.tokenizeAny(u8, str, &std.ascii.whitespace);
-
-    while (it.next()) |s| {
-        std.debug.print("'{s}'\n", .{s});
-    }
+    var args = tui.parseArgs("undo step count=1", alloc) catch return;
+    args.deinit();
 }
 
 fn execute_machine() void {
