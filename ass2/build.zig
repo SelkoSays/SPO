@@ -48,8 +48,6 @@ pub fn build(b: *std.Build) !void {
 
     check.dependOn(&check_comp.step);
 
-    addDep(b, exe, "vaxis", target, optimize);
-
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
@@ -106,17 +104,6 @@ pub fn build(b: *std.Build) !void {
         // test_step.dependOn(&run_lib_unit_tests.step);
         test_step.dependOn(&run_exe_unit_tests.step);
     }
-}
-
-fn addDep(b: *std.Build, exe: *std.Build.Step.Compile, name: []const u8, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) void {
-    // using vaxis as a dependency
-    const lib = b.dependency(name, .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    exe.root_module.addImport(name, lib.module(name));
-    // exe.linkLibrary(lib.artifact(name));
 }
 
 fn addCompiledFile(b: *std.Build, exe: *std.Build.Step.Compile, name: []const u8, generator_path: []const u8, generated_file_path: []const u8) *std.Build.Step.Run {

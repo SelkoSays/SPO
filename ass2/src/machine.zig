@@ -190,7 +190,7 @@ pub const Machine = struct {
     clock_speed: u64 = 1, // [kHz]
     stopped: bool = true,
 
-    const OSDevices = Devices(256);
+    pub const OSDevices = Devices(256);
 
     const Self = @This();
 

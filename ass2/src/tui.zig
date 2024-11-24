@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const Actions = enum {
     Noop,
     Quit,
+    Load,
     Start,
     Step,
     Watch,
@@ -24,6 +25,7 @@ const Actions = enum {
 // q, quit
 // start, run, r
 // step  [count=]
+// load  file=
 // u, undo
 // |-- step  [count=]
 // \-- size  [val=]
@@ -53,13 +55,15 @@ const menu: Menu = Menu{
                     .params = &.{
                         Param{
                             .name = "addr",
+                            .canBeNum = true,
                         },
                         Param{
                             .name = "val",
                         },
                         Param{
                             .name = "size",
-                            .limited = &.{ "word", "byte", "number" },
+                            .limited = &.{ "word", "byte" },
+                            .canBeNum = true,
                         },
                     },
                     .action = .MemSet,
@@ -71,9 +75,11 @@ const menu: Menu = Menu{
                     .params = &.{
                         Param{
                             .name = "addr",
+                            .canBeNum = true,
                         },
                         Param{
                             .name = "count",
+                            .canBeNum = true,
                             .optional = true,
                         },
                     },
@@ -111,6 +117,7 @@ const menu: Menu = Menu{
                         },
                         Param{
                             .name = "val",
+                            .canBeNum = true,
                         },
                     },
                     .action = .RegSet,
@@ -133,6 +140,7 @@ const menu: Menu = Menu{
                     .params = &.{
                         Param{
                             .name = "addr",
+                            .canBeNum = true,
                         },
                     },
                     .action = .Breakpoint,
@@ -155,6 +163,7 @@ const menu: Menu = Menu{
                         Param{
                             .name = "count",
                             .optional = true,
+                            .canBeNum = true,
                         },
                     },
                     .action = .Undo,
@@ -166,6 +175,7 @@ const menu: Menu = Menu{
                         Param{
                             .name = "val",
                             .optional = true,
+                            .canBeNum = true,
                         },
                     },
                     .action = .UndoSet,
@@ -180,8 +190,8 @@ const menu: Menu = Menu{
                 Cmd{
                     .name = "set",
                     .params = &.{
-                        Param{ .name = "addr" },
-                        Param{ .name = "size", .limited = &.{ "word", "byte", "number" } },
+                        Param{ .name = "addr", .canBeNum = true },
+                        Param{ .name = "size", .limited = &.{ "word", "byte" }, .canBeNum = true },
                     },
                     .action = .Watch,
                     .help = "Add 'addr' location to the watch list, with 'size'",
@@ -209,16 +219,26 @@ const menu: Menu = Menu{
         },
         Cmd{
             .name = "step",
-            .params = &.{Param{ .name = "count", .optional = true }},
+            .params = &.{Param{
+                .name = "count",
+                .optional = true,
+                .canBeNum = true,
+            }},
             .action = .Step,
             .help = "Execute one instruction or 'count' instructions",
+        },
+        Cmd{
+            .name = "load",
+            .params = &.{Param{ .name = "file" }},
+            .action = .Step,
+            .help = "Load 'file' into memory",
         },
     },
 };
 
-const Args = struct {
+pub const Args = struct {
     action: Actions = .Noop,
-    args: std.StringArrayHashMap(Val),
+    args: std.StringArrayHashMap(Val) = undefined,
 
     const Val = union(enum) {
         Str: []const u8,
@@ -265,115 +285,6 @@ const Args = struct {
         self.args.deinit();
     }
 };
-
-pub fn parseArgs(line: []const u8, alloc: Allocator) !Args {
-    var it = std.mem.tokenizeAny(u8, line, &std.ascii.whitespace);
-
-    var args = Args.init(alloc);
-    errdefer args.deinit();
-
-    var cur_menu: *const Menu = &menu;
-    var cmd: ?*const Cmd = null;
-
-    var n = it.next();
-
-    if (n == null) return error.E;
-
-    const w = std.io.getStdOut().writer().any();
-
-    // checking menus and command
-    while (n) |name| {
-        if (std.mem.eql(u8, name, "?")) {
-            const s = cur_menu.str(alloc, true) catch {
-                std.debug.print("InternalError: Cannot create help message. Try again.\n", .{});
-                return error.E;
-            };
-            defer alloc.free(s);
-
-            printOut(w, "{s}\n", .{s});
-            return error.E;
-        }
-
-        if (cur_menu.getSubMenu(name)) |m| {
-            cur_menu = m;
-        } else if (cur_menu.getCommand(name)) |c| {
-            cmd = c;
-            break;
-        } else {
-            if (std.mem.indexOf(u8, name, "=") != null) {
-                printOut(w, "Error: menus do not accept parameters.\n", .{});
-            } else {
-                printOut(w, "Error: unknown menu/command '{s}'.\n", .{name});
-                const l = try cur_menu.list(alloc);
-                printOut(w, "Available submenus and commands: {s}.\n", .{l});
-            }
-            return error.E;
-        }
-
-        n = it.next();
-    }
-
-    if (cmd == null) {
-        printOut(w, "Error: '{s}' is not a command\n", .{cur_menu.name});
-        return error.E;
-    }
-
-    args.action = cmd.?.action;
-
-    // checking command arguments
-    while (it.next()) |arg| {
-        if (std.mem.eql(u8, arg, "?")) {
-            const s = cmd.?.str(alloc, true) catch {
-                std.debug.print("InternalError: Cannot create help message. Try again.\n", .{});
-                return error.E;
-            };
-            defer alloc.free(s);
-
-            printOut(w, "{s}\n", .{s});
-            return error.E;
-        }
-
-        var ait = std.mem.tokenizeScalar(u8, arg, '=');
-        const name = ait.next();
-        if (name == null) unreachable; // 'it' should not return empty slices
-
-        const param = cmd.?.getParam(name.?);
-        if (param == null) {
-            printOut(w, "Error: Command '{s}' does not accept parameter '{s}'.\n", .{ cmd.?.name, name.? });
-            return error.E;
-        }
-
-        const val = ait.next();
-        if (val == null or val.?.len == 0) {
-            printOut(w, "Error: Parameter '{s}' expects value, but got none.\n", .{name.?});
-            return error.E;
-        }
-
-        if (!param.?.checkValue(val.?)) {
-            const s = param.?.listLimited(alloc) catch {
-                std.debug.print("InternalError: Cannot create param string. Try again.\n", .{});
-                return error.E;
-            };
-            defer alloc.free(s);
-            printOut(w, "Error: Value '{s}' is incorrect. Should be {s}.", .{ val.?, s });
-            return error.E;
-        }
-
-        args.parseAndAdd(name.?, val.?, param.?.canBeNum) catch {
-            std.debug.print("InternalError: Cannot append arg. Try again.\n", .{});
-            return error.E;
-        };
-    }
-
-    for (cmd.?.params) |*p| {
-        if (!p.optional and !args.contains(p.name)) {
-            printOut(w, "Error: Command '{s}' requires parameter '{s}'.", .{ cmd.?.name, p.name });
-            return error.E;
-        }
-    }
-
-    return args;
-}
 
 const Menu = struct {
     name: []const u8,
@@ -612,4 +523,113 @@ fn printOut(w: std.io.AnyWriter, comptime format: []const u8, args: anytype) voi
     std.io.AnyWriter.print(w, format, args) catch {
         std.debug.print("InternalError: Unable to write to standard output. Try again.\n", .{});
     };
+}
+
+pub fn parseArgs(line: []const u8, alloc: Allocator) !Args {
+    var it = std.mem.tokenizeAny(u8, line, &std.ascii.whitespace);
+
+    var args = Args.init(alloc);
+    errdefer args.deinit();
+
+    var cur_menu: *const Menu = &menu;
+    var cmd: ?*const Cmd = null;
+
+    var n = it.next();
+
+    if (n == null) return error.E;
+
+    const w = std.io.getStdOut().writer().any();
+
+    // checking menus and command
+    while (n) |name| {
+        if (std.mem.eql(u8, name, "?")) {
+            const s = cur_menu.str(alloc, true) catch {
+                std.debug.print("InternalError: Cannot create help message. Try again.\n", .{});
+                return error.E;
+            };
+            defer alloc.free(s);
+
+            printOut(w, "{s}\n", .{s});
+            return error.E;
+        }
+
+        if (cur_menu.getSubMenu(name)) |m| {
+            cur_menu = m;
+        } else if (cur_menu.getCommand(name)) |c| {
+            cmd = c;
+            break;
+        } else {
+            if (std.mem.indexOf(u8, name, "=") != null) {
+                printOut(w, "Error: menus do not accept parameters.\n", .{});
+            } else {
+                printOut(w, "Error: unknown menu/command '{s}'.\n", .{name});
+                const l = try cur_menu.list(alloc);
+                printOut(w, "Available submenus and commands: {s}.\n", .{l});
+            }
+            return error.E;
+        }
+
+        n = it.next();
+    }
+
+    if (cmd == null) {
+        printOut(w, "Error: '{s}' is not a command\n", .{cur_menu.name});
+        return error.E;
+    }
+
+    args.action = cmd.?.action;
+
+    // checking command arguments
+    while (it.next()) |arg| {
+        if (std.mem.eql(u8, arg, "?")) {
+            const s = cmd.?.str(alloc, true) catch {
+                std.debug.print("InternalError: Cannot create help message. Try again.\n", .{});
+                return error.E;
+            };
+            defer alloc.free(s);
+
+            printOut(w, "{s}\n", .{s});
+            return error.E;
+        }
+
+        var ait = std.mem.tokenizeScalar(u8, arg, '=');
+        const name = ait.next();
+        if (name == null) unreachable; // 'it' should not return empty slices
+
+        const param = cmd.?.getParam(name.?);
+        if (param == null) {
+            printOut(w, "Error: Command '{s}' does not accept parameter '{s}'.\n", .{ cmd.?.name, name.? });
+            return error.E;
+        }
+
+        const val = ait.next();
+        if (val == null or val.?.len == 0) {
+            printOut(w, "Error: Parameter '{s}' expects value, but got none.\n", .{name.?});
+            return error.E;
+        }
+
+        if (!param.?.checkValue(val.?)) {
+            const s = param.?.listLimited(alloc) catch {
+                std.debug.print("InternalError: Cannot create param string. Try again.\n", .{});
+                return error.E;
+            };
+            defer alloc.free(s);
+            printOut(w, "Error: Value '{s}' is incorrect. Should be {s}.", .{ val.?, s });
+            return error.E;
+        }
+
+        args.parseAndAdd(name.?, val.?, param.?.canBeNum) catch {
+            std.debug.print("InternalError: Cannot append arg. Try again.\n", .{});
+            return error.E;
+        };
+    }
+
+    for (cmd.?.params) |*p| {
+        if (!p.optional and !args.contains(p.name)) {
+            printOut(w, "Error: Command '{s}' requires parameter '{s}'.", .{ cmd.?.name, p.name });
+            return error.E;
+        }
+    }
+
+    return args;
 }
