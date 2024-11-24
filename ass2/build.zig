@@ -26,16 +26,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    const is_exe = b.addExecutable(.{
-        .name = "instruction_set",
-        .root_source_file = b.path("tools/is_gen.zig"),
-        .target = b.host,
-    });
-    const is_exe_step = b.addRunArtifact(is_exe);
-    exe.step.dependOn(&is_exe_step.step);
-    exe.root_module.addAnonymousImport("instruction_set", .{
-        .root_source_file = b.path("tools/instruction_set.zig"),
-    });
+    const is_exe_step = addCompiledFile(b, exe, "instruction_set", "tools/is_gen.zig", "tools/instruction_set.zig");
 
     const check_comp = try b.allocator.create(std.Build.Step.Compile);
     check_comp.* = exe.*;
@@ -56,6 +47,8 @@ pub fn build(b: *std.Build) !void {
     fmt_check.dependOn((&fmt_check_step.step));
 
     check.dependOn(&check_comp.step);
+
+    addDep(b, exe, "vaxis", target, optimize);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
@@ -113,4 +106,30 @@ pub fn build(b: *std.Build) !void {
         // test_step.dependOn(&run_lib_unit_tests.step);
         test_step.dependOn(&run_exe_unit_tests.step);
     }
+}
+
+fn addDep(b: *std.Build, exe: *std.Build.Step.Compile, name: []const u8, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) void {
+    // using vaxis as a dependency
+    const lib = b.dependency(name, .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    exe.root_module.addImport(name, lib.module(name));
+    // exe.linkLibrary(lib.artifact(name));
+}
+
+fn addCompiledFile(b: *std.Build, exe: *std.Build.Step.Compile, name: []const u8, generator_path: []const u8, generated_file_path: []const u8) *std.Build.Step.Run {
+    const is_exe = b.addExecutable(.{
+        .name = name,
+        .root_source_file = b.path(generator_path),
+        .target = b.host,
+    });
+    const is_exe_step = b.addRunArtifact(is_exe);
+    exe.step.dependOn(&is_exe_step.step);
+    exe.root_module.addAnonymousImport(name, .{
+        .root_source_file = b.path(generated_file_path),
+    });
+
+    return is_exe_step;
 }
