@@ -276,7 +276,7 @@ pub const Machine = struct {
             .LDS => self.regs.gpr.S = n,
             .LDT => self.regs.gpr.T = n,
             .LDX => self.regs.gpr.X = n,
-            .ADD => self.regs.gpr.A += n,
+            .ADD => self.regs.gpr.A +%= n,
             .ADDF => {
                 self.regs.F += self.getAddrF(instr, instr_size, sic, getFnF);
                 self.regs.F = hlp.chopFloat(self.regs.F);
@@ -284,7 +284,7 @@ pub const Machine = struct {
             .ADDR => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
-                self.regs.set(@enumFromInt(instr.f2.r2), r2 + r1);
+                self.regs.set(@enumFromInt(instr.f2.r2), r2 +% r1);
             },
             .AND => self.regs.gpr.A &= n,
             .CLEAR => self.regs.set(@enumFromInt(instr.f2.r1), @as(u24, 0)),
@@ -332,7 +332,7 @@ pub const Machine = struct {
                 self.regs.PC = n;
             },
             // .LPS => {},
-            .MUL => self.regs.gpr.A *= n,
+            .MUL => self.regs.gpr.A *%= n,
             .MULF => {
                 self.regs.F *= self.getAddrF(instr, instr_size, sic, getFnF);
                 self.regs.F = hlp.chopFloat(self.regs.F);
@@ -340,7 +340,7 @@ pub const Machine = struct {
             .MULR => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
-                self.regs.set(@enumFromInt(instr.f2.r2), r2 * r1);
+                self.regs.set(@enumFromInt(instr.f2.r2), r2 *% r1);
             },
             // .NORM => {}, ???
             .OR => self.regs.gpr.A |= n,
@@ -373,7 +373,7 @@ pub const Machine = struct {
             .STSW => self.mem.set(n, self.regs.SW),
             .STT => self.mem.set(n, self.regs.gpr.T),
             .STX => self.mem.set(n, self.regs.gpr.X),
-            .SUB => self.regs.gpr.A -= n,
+            .SUB => self.regs.gpr.A -%= n,
             .SUBF => {
                 self.regs.F -= self.getAddrF(instr, instr_size, sic, getFnF);
                 self.regs.F = hlp.chopFloat(self.regs.F);
@@ -381,7 +381,7 @@ pub const Machine = struct {
             .SUBR => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
-                self.regs.set(@enumFromInt(instr.f2.r2), r2 - r1);
+                self.regs.set(@enumFromInt(instr.f2.r2), r2 -% r1);
             },
             // .SVC => {},
             .TD => {
@@ -393,11 +393,11 @@ pub const Machine = struct {
             },
             // .TIO => {},
             .TIX => {
-                self.regs.gpr.X += 1;
+                self.regs.gpr.X +%= 1;
                 self.regs.SW.s.cc = comp(self.regs.gpr.X, n);
             },
             .TIXR => {
-                self.regs.gpr.X += 1;
+                self.regs.gpr.X +%= 1;
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 self.regs.SW.s.cc = comp(self.regs.gpr.X, r1);
             },
