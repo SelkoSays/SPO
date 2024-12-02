@@ -317,19 +317,24 @@ pub const Machine = struct {
             .J => {
                 if (self.regs.PC == n) self.stop();
                 self.regs.PC = n;
+                return;
             },
             .JEQ => if (self.regs.SW.s.cc == .Equal) {
                 self.regs.PC = n;
+                return;
             },
             .LGT => if (self.regs.SW.s.cc == .Greater) {
                 self.regs.PC = n;
+                return;
             },
             .JLT => if (self.regs.SW.s.cc == .Less) {
                 self.regs.PC = n;
+                return;
             },
             .JSUB => {
                 self.regs.gpr.L = self.regs.PC;
                 self.regs.PC = n;
+                return;
             },
             // .LPS => {},
             .MUL => self.regs.gpr.A *%= n,
