@@ -7,7 +7,27 @@ pub fn Result(comptime O: type, comptime E: type) type {
 
         const Self = @This();
 
-        pub fn unwrap(self: *Self) !O {
+        pub fn Err(@"error": E) Self {
+            return Self{
+                .Err = @"error",
+            };
+        }
+
+        pub fn Ok(ok: O) Self {
+            return Self{
+                .Ok = ok,
+            };
+        }
+
+        pub fn is_err(self: *const Self) bool {
+            return self.* == .Err;
+        }
+
+        pub fn is_ok(self: *const Self) bool {
+            return self.* == .Ok;
+        }
+
+        pub fn unwrap(self: *const Self) !O {
             return switch (self.*) {
                 .Ok => |ok| ok,
                 .Err => |err| blk: {
@@ -28,7 +48,14 @@ pub fn Result(comptime O: type, comptime E: type) type {
             };
         }
 
-        pub fn map_ok(self: Self, comptime T: type, mapFn: *const fn (ok: O) T) Result(T, E) {
+        pub fn map_ok(self: Self, comptime T: type, comptime mapFn: ?*const fn (ok: O) T) !Result(T, E) {
+            if (mapFn == null) {
+                return switch (self) {
+                    .Ok => error.CannotMapOkType,
+                    .Err => |err| .{ .Err = err },
+                };
+            }
+
             return switch (self) {
                 .Ok => |ok| .{ .Ok = mapFn(ok) },
                 .Err => |err| .{ .Err = err },

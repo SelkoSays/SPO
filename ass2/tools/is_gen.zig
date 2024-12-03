@@ -198,65 +198,94 @@ const HashMap = struct {
 };
 
 const Opcode = enum(u16) {
-    ADD = 0x183,
-    ADDF = 0x583,
-    ADDR = 0x902,
-    AND = 0x403,
-    CLEAR = 0xB42,
-    COMP = 0x283,
-    COMPF = 0x883,
-    COMPR = 0xA02,
-    DIV = 0x243,
-    DIVF = 0x643,
-    DIVR = 0x9C2,
-    FIX = 0xC41,
-    FLOAT = 0xC01,
-    // HIO = 0xF41,
-    J = 0x3C3,
-    JEQ = 0x303,
-    LGT = 0x343,
-    JLT = 0x383,
-    JSUB = 0x483,
+    // ***** SIC format, SIC/XE format 3, and SIC/XE format 4 *****
+
+    // load and store
     LDA = 0x003,
-    LDB = 0x683,
-    LDCH = 0x503,
-    LDF = 0x703,
-    LDL = 0x083,
-    LDS = 0x6C3,
-    LDT = 0x743,
     LDX = 0x043,
-    // LPS = 0xD03,
+    LDL = 0x083,
+    STA = 0x0C3,
+    STX = 0x103,
+    STL = 0x143,
+
+    // fixed point arithmetic
+    ADD = 0x183,
+    SUB = 0x1C3,
     MUL = 0x203,
-    MULF = 0x603,
-    MULR = 0x982,
-    NORM = 0xC81,
+    DIV = 0x243,
+    COMP = 0x283,
+    TIX = 0x2C3,
+
+    // jumps
+    JEQ = 0x303,
+    JGT = 0x343,
+    JLT = 0x383,
+    J = 0x3C3,
+
+    // bit manipulation
+    AND = 0x403,
     OR = 0x443,
-    RD = 0xDB3,
-    RMO = 0xAC2,
+
+    // jump to subroutine
+    JSUB = 0x483,
     RSUB = 0x4C3,
+
+    // load and store
+    LDCH = 0x503,
+    STCH = 0x543,
+
+    // ***** SICXE Format 3 and Format 4
+
+    // floating point arithmetic
+    ADDF = 0x583,
+    SUBF = 0x5C3,
+    MULF = 0x603,
+    DIVF = 0x643,
+    COMPF = 0x883,
+
+    // load and store
+    LDB = 0x683,
+    LDS = 0x6C3,
+    LDF = 0x703,
+    LDT = 0x743,
+    STB = 0x783,
+    STS = 0x7C3,
+    STF = 0x803,
+    STT = 0x843,
+
+    // special load and store
+    // LPS = 0xD03,
+    // STI = 0xD43,
+    STSW = 0xE83,
+
+    // devices
+    RD = 0xD83,
+    WD = 0xDC3,
+    TD = 0xE03,
+
+    // system
+    // SSK = 0xEC3,
+
+    // ***** SIC/XE Format 2 *****
+    ADDR = 0x902,
+    SUBR = 0x942,
+    MULR = 0x982,
+    DIVR = 0x9C2,
+    COMPR = 0xA02,
     SHIFTL = 0xA42,
     SHIFTR = 0xA82,
-    // SIO = 0xF01,
-    // SSK = 0xEC3,
-    STA = 0x0C3,
-    STB = 0x783,
-    STCH = 0x543,
-    STF = 0x803,
-    // STI = 0xD43,
-    STL = 0x143,
-    STS = 0x7C3,
-    STSW = 0xE83,
-    STT = 0x843,
-    STX = 0x103,
-    SUB = 0x1C3,
-    SUBF = 0x5C3,
-    SUBR = 0x942,
+    RMO = 0xAC2,
     // SVC = 0xB02,
-    TD = 0xE03,
-    // TIO = 0xF81,
-    TIX = 0x2C3,
+    CLEAR = 0xB42,
     TIXR = 0xB82,
-    WD = 0xDC3,
+
+    // // ***** SIC/XE Format 1 *****
+    FLOAT = 0xC01,
+    FIX = 0xC41,
+    NORM = 0xC81,
+    // SIO = 0xF01,
+    // HIO = 0xF41,
+    // TIO = 0xF81,
 
     const Self = @This();
     pub fn genText(str: *std.ArrayList(u8)) !void {

@@ -1,5 +1,5 @@
 const std = @import("std");
-const hlp = @import("helper.zig");
+const hl = @import("helper.zig");
 const dev = @import("device.zig");
 const Device = dev.Device;
 const Devices = dev.Devices;
@@ -116,7 +116,7 @@ const Mem = struct {
     const Self = @This();
 
     pub fn get(self: *const Self, addr: u24, comptime T: type) T {
-        const size = hlp.sizeOf(T);
+        const size = hl.sizeOf(T);
         // TODO: check address
         var ret = std.mem.bytesToValue(T, self.buf[addr .. addr + size]);
 
@@ -129,7 +129,7 @@ const Mem = struct {
 
     pub fn set(self: *Self, addr: u24, val: anytype) void {
         const T: type = @TypeOf(val);
-        const size = hlp.sizeOf(T);
+        const size = hl.sizeOf(T);
 
         // std.debug.print("addr = {X}\n", .{addr});
 
@@ -144,7 +144,7 @@ const Mem = struct {
     }
 
     pub fn getE(self: *const Self, addr: u24, comptime T: type, comptime enidan: std.builtin.Endian) T {
-        const size = hlp.sizeOf(T);
+        const size = hl.sizeOf(T);
         // TODO: check address
         var ret = std.mem.bytesAsValue(T, self.buf[addr .. addr + size]).*;
 
@@ -158,7 +158,7 @@ const Mem = struct {
 
     pub fn setE(self: *Self, addr: u24, val: anytype, comptime enidan: std.builtin.Endian) void {
         const T: type = @TypeOf(val);
-        const size = hlp.sizeOf(T);
+        const size = hl.sizeOf(T);
 
         // std.debug.print("addr = {X}\n", .{addr});
 
@@ -191,6 +191,13 @@ pub const Machine = struct {
     stopped: bool = true,
 
     pub const OSDevices = Devices(256);
+
+    const AddrMode = enum(u2) {
+        None = 0b00,
+        Immediate = 0b01,
+        Normal = 0b10,
+        Indirect = 0b11,
+    };
 
     const Self = @This();
 
@@ -245,119 +252,195 @@ pub const Machine = struct {
         if (instr_size > 2 and instr.f3.e) {
             instr_size += 1;
         }
+        self.regs.PC += instr_size;
 
-        var getFn = &Self.getNormal;
-        var getFnB = &Self.getNormalB;
-        var getFnF = &Self.getNormalF;
+        var address_mode = AddrMode.Normal;
 
         if (!instr.f3.n and instr.f3.i) {
-            getFn = &Self.getImmidiate;
-            getFnB = &Self.getImmidiateB;
-            getFnF = &Self.getImmidiateF;
+            address_mode = .Immediate;
         } else if (instr.f3.n and !instr.f3.i) {
-            getFn = &Self.getIndirect;
-            getFnB = &Self.getIndirectB;
-            getFnF = &Self.getIndirectF;
+            address_mode = .Indirect;
         }
 
         const sic = !instr.f3.n and !instr.f3.i;
 
-        const n = self.getAddr(instr, instr_size, sic, u24, getFn);
+        const n = self.getAddr(u24, instr, instr_size, sic, false, address_mode);
 
         switch (opcode) {
+            // load and store
             .LDA => self.regs.gpr.A = n,
-            .LDB => self.regs.gpr.B = n,
+            .LDX => self.regs.gpr.X = n,
+            .LDL => self.regs.gpr.L = n,
+            .STA => if (address_mode != .Immediate) {
+                self.mem.set(
+                    self.getAddr(u24, instr, instr_size, sic, true, address_mode),
+                    self.regs.gpr.A,
+                );
+            },
+            .STX => if (address_mode != .Immediate) {
+                self.mem.set(
+                    self.getAddr(u24, instr, instr_size, sic, true, address_mode),
+                    self.regs.gpr.X,
+                );
+            },
+            .STL => if (address_mode != .Immediate) {
+                self.mem.set(
+                    self.getAddr(u24, instr, instr_size, sic, true, address_mode),
+                    self.regs.gpr.L,
+                );
+            },
+            // fixed point arithmetic
+            .ADD => self.regs.gpr.A +%= n,
+            .SUB => self.regs.gpr.A -%= n,
+            .MUL => self.regs.gpr.A *%= n,
+            .DIV => self.regs.gpr.A /= n,
+            .COMP => self.regs.SW.s.cc = comp(self.regs.gpr.A, n),
+            .TIX => {
+                self.regs.gpr.X +%= 1;
+                self.regs.SW.s.cc = comp(self.regs.gpr.X, n);
+            },
+            // jumps
+            .JEQ => if (self.regs.SW.s.cc == .Equal) {
+                self.regs.PC = n;
+            },
+            .JGT => if (self.regs.SW.s.cc == .Greater) {
+                self.regs.PC = n;
+            },
+            .JLT => if (self.regs.SW.s.cc == .Less) {
+                self.regs.PC = n;
+            },
+            .J => {
+                if (self.regs.PC == (n - instr_size)) self.stop();
+                self.regs.PC = n;
+            },
+            // bit manipulation
+            .AND => self.regs.gpr.A &= n,
+            .OR => self.regs.gpr.A |= n,
+            // jump to subroutine
+            .JSUB => {
+                self.regs.gpr.L = self.regs.PC;
+                self.regs.PC = n;
+            },
+            .RSUB => self.regs.PC = self.regs.gpr.L,
+            // load and store byte
             .LDCH => {
                 self.regs.gpr.A &= ~@as(u24, 0xFF);
-                self.regs.gpr.A |= self.getAddr(instr, instr_size, sic, u8, getFnB);
+                self.regs.gpr.A |= self.getAddr(u8, instr, instr_size, sic, false, address_mode);
             },
-            .LDF => self.regs.F = self.getAddrF(instr, instr_size, sic, getFnF),
-            .LDL => self.regs.gpr.L = n,
-            .LDS => self.regs.gpr.S = n,
-            .LDT => self.regs.gpr.T = n,
-            .LDX => self.regs.gpr.X = n,
-            .ADD => self.regs.gpr.A +%= n,
+            .STCH => if (address_mode != .Immediate) {
+                self.mem.set(
+                    self.getAddr(u24, instr, instr_size, sic, true, address_mode),
+                    @as(u8, @truncate(self.regs.gpr.A & 0xFF)),
+                );
+            },
+            // floating point arithmetic
             .ADDF => {
-                self.regs.F += self.getAddrF(instr, instr_size, sic, getFnF);
-                self.regs.F = hlp.chopFloat(self.regs.F);
+                self.regs.F += self.getAddr(f64, instr, instr_size, sic, false, address_mode);
+                self.regs.F = hl.chopFloat(self.regs.F);
             },
+            .SUBF => {
+                self.regs.F -= self.getAddr(f64, instr, instr_size, sic, false, address_mode);
+                self.regs.F = hl.chopFloat(self.regs.F);
+            },
+            .MULF => {
+                self.regs.F *= self.getAddr(f64, instr, instr_size, sic, false, address_mode);
+                self.regs.F = hl.chopFloat(self.regs.F);
+            },
+            .DIVF => {
+                self.regs.F /= self.getAddr(f64, instr, instr_size, sic, false, address_mode);
+                self.regs.F = hl.chopFloat(self.regs.F);
+            },
+            .COMPF => {
+                const f = self.getAddr(f64, instr, instr_size, sic, false, address_mode);
+                self.regs.SW.s.cc = comp(self.regs.F, f);
+            },
+
+            // load and store
+            .LDB => self.regs.gpr.B = n,
+            .LDS => self.regs.gpr.S = n,
+            // .LDF => self.regs.F = self.getAddrF(instr, instr_size, sic, getFnF),
+            .LDT => self.regs.gpr.T = n,
+            .STB => if (address_mode != .Immediate) {
+                self.mem.set(
+                    self.getAddr(u24, instr, instr_size, sic, true, address_mode),
+                    self.regs.gpr.B,
+                );
+            },
+            .STS => if (address_mode != .Immediate) {
+                self.mem.set(
+                    self.getAddr(u24, instr, instr_size, sic, true, address_mode),
+                    self.regs.gpr.S,
+                );
+            },
+            // .STF => self.mem.setF(n, self.regs.F),
+            .STT => if (address_mode != .Immediate) {
+                self.mem.set(
+                    self.getAddr(u24, instr, instr_size, sic, true, address_mode),
+                    self.regs.gpr.T,
+                );
+            },
+            // special load and store
+            // .LPS => {},
+            // .STI => {},
+            .STSW => if (address_mode != .Immediate) {
+                self.mem.set(
+                    self.getAddr(u24, instr, instr_size, sic, true, address_mode),
+                    self.regs.SW,
+                );
+            },
+            // devices
+            .RD => {
+                const dev_ = self.getAddr(u8, instr, instr_size, sic, false, address_mode);
+                self.regs.gpr.A = self.devs.getDevice(dev_).read();
+            },
+            .WD => {
+                const dev_ = self.getAddr(u8, instr, instr_size, sic, false, address_mode);
+                self.devs.getDevice(dev_).write(@truncate(self.regs.gpr.A & 0xFF));
+            },
+            .TD => {
+                const dev_ = self.getAddr(u8, instr, instr_size, sic, false, address_mode);
+                const t = self.devs.getDevice(dev_).@"test"();
+                if (!t) {
+                    self.regs.SW.s.cc = .Greater;
+                }
+            },
+            // system
+            // .SSK => {},
+
+            // ***** SIC/XE Format 1 *****
+            .FLOAT => {
+                self.regs.F = @floatFromInt(self.regs.gpr.A);
+                self.regs.F = hl.chopFloat(self.regs.F);
+            },
+            .FIX => self.regs.gpr.A = @intFromFloat(self.regs.F),
+            // .NORM => {}, ???
+
+            // ***** SIC/XE Format 2 *****
             .ADDR => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
                 self.regs.set(@enumFromInt(instr.f2.r2), r2 +% r1);
             },
-            .AND => self.regs.gpr.A &= n,
-            .CLEAR => self.regs.set(@enumFromInt(instr.f2.r1), @as(u24, 0)),
-            .COMP => self.regs.SW.s.cc = comp(self.regs.gpr.A, n),
-            .COMPF => {
-                const f = self.getAddrF(instr, instr_size, sic, getFnF);
-                self.regs.SW.s.cc = comp(self.regs.F, f);
-            },
-            .COMPR => {
+            .SUBR => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
-                self.regs.SW.s.cc = comp(r1, r2);
-            },
-            .DIV => self.regs.gpr.A /= n,
-            .DIVF => {
-                self.regs.F /= self.getAddrF(instr, instr_size, sic, getFnF);
-                self.regs.F = hlp.chopFloat(self.regs.F);
-            },
-            .DIVR => {
-                const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
-                const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
-                self.regs.set(@enumFromInt(instr.f2.r2), r2 / r1);
-            },
-            .FIX => self.regs.gpr.A = @intFromFloat(self.regs.F),
-            .FLOAT => {
-                self.regs.F = @floatFromInt(self.regs.gpr.A);
-                self.regs.F = hlp.chopFloat(self.regs.F);
-            },
-            // .HIO => {},
-            .J => {
-                if (self.regs.PC == n) self.stop();
-                self.regs.PC = n;
-                return;
-            },
-            .JEQ => if (self.regs.SW.s.cc == .Equal) {
-                self.regs.PC = n;
-                return;
-            },
-            .LGT => if (self.regs.SW.s.cc == .Greater) {
-                self.regs.PC = n;
-                return;
-            },
-            .JLT => if (self.regs.SW.s.cc == .Less) {
-                self.regs.PC = n;
-                return;
-            },
-            .JSUB => {
-                self.regs.gpr.L = self.regs.PC;
-                self.regs.PC = n;
-                return;
-            },
-            // .LPS => {},
-            .MUL => self.regs.gpr.A *%= n,
-            .MULF => {
-                self.regs.F *= self.getAddrF(instr, instr_size, sic, getFnF);
-                self.regs.F = hlp.chopFloat(self.regs.F);
+                self.regs.set(@enumFromInt(instr.f2.r2), r2 -% r1);
             },
             .MULR => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
                 self.regs.set(@enumFromInt(instr.f2.r2), r2 *% r1);
             },
-            // .NORM => {}, ???
-            .OR => self.regs.gpr.A |= n,
-            .RD => {
-                const dev_ = self.getAddr(instr, instr_size, sic, u8, getFnB);
-                self.regs.gpr.A = self.devs.getDevice(dev_).read();
-            },
-            .RMO => {
+            .DIVR => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
-                self.regs.set(@enumFromInt(instr.f2.r2), r1);
+                const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
+                self.regs.set(@enumFromInt(instr.f2.r2), r2 / r1);
             },
-            .RSUB => self.regs.PC = self.regs.gpr.L,
+            .COMPR => {
+                const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
+                const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
+                self.regs.SW.s.cc = comp(r1, r2);
+            },
             .SHIFTL => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 self.regs.set(@enumFromInt(instr.f2.r2), r1 << instr.f2.r2);
@@ -366,54 +449,24 @@ pub const Machine = struct {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 self.regs.set(@enumFromInt(instr.f2.r2), r1 >> instr.f2.r2);
             },
-            // .SIO => {},
-            // .SSK => {},
-            .STA => self.mem.set(n, self.regs.gpr.A),
-            .STB => self.mem.set(n, self.regs.gpr.B),
-            .STCH => self.mem.set(n, @as(u8, @truncate(self.regs.gpr.A & 0xFF))),
-            .STF => self.mem.setF(n, self.regs.F),
-            // .STI => {},
-            .STL => self.mem.set(n, self.regs.gpr.L),
-            .STS => self.mem.set(n, self.regs.gpr.S),
-            .STSW => self.mem.set(n, self.regs.SW),
-            .STT => self.mem.set(n, self.regs.gpr.T),
-            .STX => self.mem.set(n, self.regs.gpr.X),
-            .SUB => self.regs.gpr.A -%= n,
-            .SUBF => {
-                self.regs.F -= self.getAddrF(instr, instr_size, sic, getFnF);
-                self.regs.F = hlp.chopFloat(self.regs.F);
-            },
-            .SUBR => {
+            .RMO => {
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
-                const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
-                self.regs.set(@enumFromInt(instr.f2.r2), r2 -% r1);
+                self.regs.set(@enumFromInt(instr.f2.r2), r1);
             },
             // .SVC => {},
-            .TD => {
-                const dev_ = self.getAddr(instr, instr_size, sic, u8, getFnB);
-                const t = self.devs.getDevice(dev_).@"test"();
-                if (!t) {
-                    self.regs.SW.s.cc = .Greater;
-                }
-            },
-            // .TIO => {},
-            .TIX => {
-                self.regs.gpr.X +%= 1;
-                self.regs.SW.s.cc = comp(self.regs.gpr.X, n);
-            },
+            .CLEAR => self.regs.set(@enumFromInt(instr.f2.r1), @as(u24, 0)),
             .TIXR => {
                 self.regs.gpr.X +%= 1;
                 const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
                 self.regs.SW.s.cc = comp(self.regs.gpr.X, r1);
             },
-            .WD => {
-                const dev_ = self.getAddr(instr, instr_size, sic, u8, getFnB);
-                self.devs.getDevice(dev_).write(@truncate(self.regs.gpr.A & 0xFF));
-            },
+
+            // .HIO => {},
+            // .SIO => {},
+            // .TIO => {},
+
             else => @panic("unhandeled instruction"),
         }
-
-        self.regs.PC += instr_size;
     }
 
     fn notSicErr(self: *Self) void {
@@ -431,111 +484,46 @@ pub const Machine = struct {
         }
     }
 
-    fn getAddr(self: *Self, instr: Is.Fmt, instr_size: u3, sic: bool, comptime T: type, getFn: *const fn (*Self, u24) T) T {
-        if (instr_size > 2) {
-            var plus = self.regs.gpr.X * @intFromBool(instr.fs.x);
+    fn get(self: *Self, comptime T: type, addr: u24, addr_mode: AddrMode, comptime addr_size: usize) T {
+        if (T == f64) {
+            const shift = @bitSizeOf(u48) - (@bitSizeOf(u24) - addr_size);
 
-            if (sic) {
-                return getFn(self, instr.fs.addr + plus);
-            }
-
-            if (instr.f3.b) {
-                plus += self.regs.gpr.B * @intFromBool(instr.f3.b);
-            }
-
-            if (instr.f3.p) {
-                plus += self.regs.PC * @intFromBool(instr.f3.p);
-            }
-
-            if (instr.f3.e) {
-                if (instr.f4.p) {
-                    return getFn(self, @truncate(hlp.as(hlp.as(instr.f4.addr, i20) + @as(i25, plus), u25)));
-                }
-                return getFn(self, instr.f4.addr + plus);
-            }
-
-            if (instr.f3.p) {
-                return getFn(self, @truncate(hlp.as(hlp.as(instr.f3.addr, i12) + @as(i25, plus), u25)));
-            }
-            return getFn(self, instr.f3.addr + plus);
+            return switch (addr_mode) {
+                .Immediate => @bitCast(@as(u64, addr) << shift), // ????????
+                .Normal => self.mem.getF(addr),
+                .Indirect => self.mem.getF(self.mem.get(addr, u24)),
+                .None => unreachable,
+            };
         }
-        return 0;
+        return switch (addr_mode) {
+            .Immediate => @truncate(addr),
+            .Normal => self.mem.get(addr, T),
+            .Indirect => self.mem.get(self.mem.get(addr, u24), T),
+            .None => unreachable, // Error
+        };
     }
 
-    fn getAddrF(self: *Self, instr: Is.Fmt, instr_size: u3, sic: bool, getFn: *const fn (*Self, u24) f64) f64 {
-        if (instr_size > 2) {
-            var plus = self.regs.gpr.X * @intFromBool(instr.fs.x);
-
-            if (sic) {
-                self.notSicErr();
-                return 0;
-            }
-
-            if (instr.f3.b) {
-                plus += self.regs.gpr.B * @intFromBool(instr.f3.b);
-            }
-
-            if (instr.f3.p) {
-                plus += self.regs.PC * @intFromBool(instr.f3.p);
-            }
-
-            if (instr.f3.e) {
-                if (instr.f4.p) {
-                    const a: u24 = @truncate(hlp.as(hlp.as(instr.f4.addr, i20) + @as(i25, plus), u25));
-                    return getFn(self, if (getFn == Self.getImmidiateF) a << 4 else a);
-                }
-                return getFn(self, instr.f4.addr + plus);
-            }
-
-            if (instr.f3.p) {
-                const a: u24 = @truncate(hlp.as(hlp.as(instr.f3.addr, i12) + @as(i25, plus), u25));
-                return getFn(self, if (getFn == Self.getImmidiateF) a << 12 else a);
-            }
-
-            const a: u24 = instr.f3.addr + plus;
-            return getFn(self, if (getFn == Self.getImmidiateF) a << 12 else a);
+    fn getAddr(self: *Self, comptime T: type, instr: Is.Fmt, instr_size: u3, sic: bool, comptime is_store: bool, addr_mode: AddrMode) T {
+        if (instr_size <= 2) {
+            unreachable;
         }
-        return 0;
-    }
 
-    fn getImmidiate(self: *Self, val: u24) u24 {
-        _ = self;
-        return val;
-    }
+        const am: AddrMode = if (is_store) @enumFromInt(@intFromEnum(addr_mode) -| 1) else addr_mode;
 
-    fn getNormal(self: *Self, addr: u24) u24 {
-        return self.mem.get(addr, u24);
-    }
+        var plus = self.regs.gpr.X * @intFromBool(instr.fs.x);
 
-    fn getIndirect(self: *Self, addr: u24) u24 {
-        return self.mem.get(self.mem.get(addr, u24), u24);
-    }
+        if (sic) {
+            return self.get(T, instr.fs.addr + plus, am, @bitSizeOf(u15));
+        }
 
-    fn getImmidiateF(self: *Self, val: u24) f64 {
-        _ = self;
-        // unsupported ?
-        return @bitCast(@as(u64, val) << 40);
-    }
+        plus += self.regs.gpr.B * @intFromBool(instr.f3.b);
+        plus += self.regs.PC * @intFromBool(instr.f3.p);
 
-    fn getNormalF(self: *Self, addr: u24) f64 {
-        return self.mem.getF(addr);
-    }
+        if (instr.f3.e) {
+            return self.get(T, @truncate(@as(i25, instr.f4.addr) + @as(i25, plus)), am, @bitSizeOf(u20));
+        }
 
-    fn getIndirectF(self: *Self, addr: u24) f64 {
-        return self.mem.getF(self.mem.get(addr, u24));
-    }
-
-    fn getImmidiateB(self: *Self, val: u24) u8 {
-        _ = self;
-        return @truncate(val & 0xFF);
-    }
-
-    fn getNormalB(self: *Self, addr: u24) u8 {
-        return self.mem.get(addr, u8);
-    }
-
-    fn getIndirectB(self: *Self, addr: u24) u8 {
-        return self.mem.get(self.mem.get(addr, u24), u8);
+        return self.get(T, @truncate(@as(i25, instr.f3.addr) + @as(i25, plus)), am, @bitSizeOf(u12));
     }
 };
 
@@ -574,8 +562,8 @@ test "Mem.set, Mem.get" {
     const f = mem.getF(0);
     try std.testing.expectEqual(1.0, f);
 
-    const expected = std.mem.toBytes(std.mem.nativeToBig(u48, @truncate(@as(u64, @bitCast(@as(f64, 1.0))) >> 16)))[0..hlp.sizeOf(u48)];
-    try std.testing.expectEqualSlices(u8, expected, buf[0..hlp.sizeOf(u48)]);
+    const expected = std.mem.toBytes(std.mem.nativeToBig(u48, @truncate(@as(u64, @bitCast(@as(f64, 1.0))) >> 16)))[0..hl.sizeOf(u48)];
+    try std.testing.expectEqualSlices(u8, expected, buf[0..hl.sizeOf(u48)]);
 }
 
 test "Machine.step" {
@@ -667,4 +655,14 @@ test "Machine.step" {
 
     m.step();
     try std.testing.expectEqual(21, m.mem.get(10, u24));
+}
+
+test "STA" {
+    var buf = [_]u8{0} ** 100;
+
+    var m = Machine.init(&buf, undefined);
+
+    m.mem.set(0, Is.Fmt{ .f3 = .{} });
+
+    m.regs.gpr.A = 10;
 }
