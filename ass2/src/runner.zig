@@ -1,6 +1,10 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const rl = @cImport({
+    @cInclude("readline/readline.h");
+    @cInclude("readline/history.h");
+});
 const mach = @import("machine.zig");
 const Machine = mach.Machine;
 
@@ -96,18 +100,23 @@ pub fn run(alloc: Allocator, action: RunAction) !void {
 }
 
 fn runTui(alloc: Allocator) !void {
-    const in = std.io.getStdIn();
-    var r = in.reader();
+    // const in = std.io.getStdIn();
+    // var r = in.reader();
 
-    const out = std.io.getStdOut();
-    var w = out.writer();
+    // const out = std.io.getStdOut();
+    // var w = out.writer();
 
     const prompt = "sic> ";
-    try w.writeAll(prompt);
+    // try w.writeAll(prompt);
 
-    var line = try r.readUntilDelimiterAlloc(alloc, '\n', 100);
+    // var line = try r.readUntilDelimiterAlloc(alloc, '\n', 100);
     while (true) {
-        var args = tui.parseArgs(line, alloc) catch tui.Args{};
+        const line: [*c]u8 = rl.readline(prompt);
+        if (line == null) {
+            continue;
+        }
+        const l = std.mem.sliceTo(line, 0);
+        var args = tui.parseArgs(l, alloc) catch tui.Args{};
 
         switch (args.action) {
             .Noop => {},
@@ -116,11 +125,10 @@ fn runTui(alloc: Allocator) !void {
         }
 
         args.deinit();
-        alloc.free(line);
-        try w.writeAll(prompt);
-        line = try r.readUntilDelimiterAlloc(alloc, '\n', 100);
+        // alloc.free(line);
+        std.c.free(line);
+        // try w.writeAll(prompt);
     }
-    alloc.free(line);
 }
 
 fn execute_machine() void {

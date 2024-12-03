@@ -26,6 +26,9 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
+    exe.linkLibC();
+    exe.linkSystemLibrary("readline");
+
     const is_exe_step = addCompiledFile(b, exe, "instruction_set", "tools/is_gen.zig", "tools/instruction_set.zig");
 
     const check_comp = try b.allocator.create(std.Build.Step.Compile);

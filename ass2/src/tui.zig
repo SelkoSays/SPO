@@ -329,17 +329,13 @@ const Menu = struct {
         var l = std.ArrayList(u8).init(alloc);
         errdefer l.deinit();
 
-        for (self.submenus, 0..) |*m, i| {
-            if (i < self.submenus.len - 1) {
-                try l.append(' ');
-            }
+        for (self.submenus) |*m| {
+            try l.append(' ');
             try l.appendSlice(m.name);
         }
 
-        for (self.commands, 0..) |*c, i| {
-            if (i < self.commands.len - 1) {
-                try l.append(' ');
-            }
+        for (self.commands) |*c| {
+            try l.append(' ');
             try l.appendSlice(c.name);
         }
 
@@ -375,6 +371,10 @@ const Menu = struct {
             try s.appendSlice(buf);
             alloc.free(buf);
             try s.appendSlice(m.name);
+            for (m.alt) |a| {
+                try s.appendSlice(", ");
+                try s.appendSlice(a);
+            }
             try s.append('\n');
         }
 
@@ -565,6 +565,7 @@ pub fn parseArgs(line: []const u8, alloc: Allocator) !Args {
                 printOut(w, "Error: unknown menu/command '{s}'.\n", .{name});
                 const l = try cur_menu.list(alloc);
                 printOut(w, "Available submenus and commands: {s}.\n", .{l});
+                alloc.free(l);
             }
             return error.E;
         }
