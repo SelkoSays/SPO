@@ -9,7 +9,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const alloc = gpa.allocator();
 
-    _ = try obj_r.read(std.io.getStdIn().reader().any(), alloc);
+    // _ = try obj_r.from_reader(std.io.getStdIn().reader().any(), alloc);
 
     try run.init(alloc);
     defer run.deinit(alloc);

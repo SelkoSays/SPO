@@ -84,6 +84,7 @@ pub fn build(b: *std.Build) !void {
         "src/machine.zig",
         "src/main.zig",
         "src/device.zig",
+        "src/obj_reader.zig",
     };
 
     const test_step = b.step("test", "Run unit tests");

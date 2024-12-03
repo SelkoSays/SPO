@@ -7,15 +7,15 @@ pub fn Result(comptime O: type, comptime E: type) type {
 
         const Self = @This();
 
-        pub fn Err(@"error": E) Self {
+        pub fn err(@"error": E) Self {
             return Self{
                 .Err = @"error",
             };
         }
 
-        pub fn Ok(ok: O) Self {
+        pub fn ok(ok_: O) Self {
             return Self{
-                .Ok = ok,
+                .Ok = ok_,
             };
         }
 
@@ -29,18 +29,18 @@ pub fn Result(comptime O: type, comptime E: type) type {
 
         pub fn unwrap(self: *const Self) !O {
             return switch (self.*) {
-                .Ok => |ok| ok,
-                .Err => |err| blk: {
+                .Ok => |ok_| ok_,
+                .Err => |err_| blk: {
                     if (@hasDecl(E, "display")) {
-                        _ = err.display();
+                        _ = err_.display();
                     }
 
                     if (@hasDecl(E, "any")) {
-                        return err.any();
+                        return err_.any();
                     }
 
                     if (E == anyerror) {
-                        break :blk err;
+                        break :blk err_;
                     }
 
                     @compileError("Type E should be of type anyerror or has to have a method 'any' that returns anyerror");
@@ -52,13 +52,13 @@ pub fn Result(comptime O: type, comptime E: type) type {
             if (mapFn == null) {
                 return switch (self) {
                     .Ok => error.CannotMapOkType,
-                    .Err => |err| .{ .Err = err },
+                    .Err => |err_| .{ .Err = err_ },
                 };
             }
 
             return switch (self) {
-                .Ok => |ok| .{ .Ok = mapFn(ok) },
-                .Err => |err| .{ .Err = err },
+                .Ok => |ok_| .{ .Ok = mapFn(ok_) },
+                .Err => |err_| .{ .Err = err_ },
             };
         }
     };
