@@ -520,10 +520,10 @@ pub const Machine = struct {
         plus += self.regs.PC * @intFromBool(instr.f3.p);
 
         if (instr.f3.e) {
-            return self.get(T, @truncate(@as(i25, instr.f4.addr) + @as(i25, plus)), am, @bitSizeOf(u20));
+            return self.get(T, @truncate(@as(u25, @bitCast(@as(i25, instr.f4.addr) + @as(i25, plus)))), am, @bitSizeOf(u20));
         }
 
-        return self.get(T, @truncate(@as(i25, instr.f3.addr) + @as(i25, plus)), am, @bitSizeOf(u12));
+        return self.get(T, @truncate(@as(u25, @bitCast(@as(i25, instr.f3.addr) + @as(i25, plus)))), am, @bitSizeOf(u12));
     }
 };
 
@@ -625,7 +625,7 @@ test "Machine.step" {
 
     m.mem.set(6, Is.Fmt{ .f3 = .{
         .opcode = @truncate(Opcode.STA.int()),
-        .n = false,
+        .n = true,
         .i = true,
         .x = false,
         .b = false,
@@ -637,7 +637,7 @@ test "Machine.step" {
 
     try std.testing.expectEqual(@as(u32, @bitCast(Is.Fmt{ .f3 = .{
         .opcode = @truncate(Opcode.STA.int()),
-        .n = false,
+        .n = true,
         .i = true,
         .x = false,
         .b = false,
@@ -662,7 +662,20 @@ test "STA" {
 
     var m = Machine.init(&buf, undefined);
 
-    m.mem.set(0, Is.Fmt{ .f3 = .{} });
-
     m.regs.gpr.A = 10;
+
+    m.mem.set(0, Is.Fmt{ .f3 = .{
+        .opcode = @truncate(Opcode.STA.int()),
+        .n = true,
+        .i = true,
+        .x = false,
+        .b = false,
+        .p = false,
+        .e = false,
+        .addr = 3,
+        ._pad = 0,
+    } });
+
+    m.step();
+    try std.testing.expectEqual(10, m.mem.get(3, u24));
 }

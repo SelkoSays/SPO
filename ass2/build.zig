@@ -99,6 +99,7 @@ pub fn build(b: *std.Build) !void {
         exe_unit_tests.root_module.addAnonymousImport("instruction_set", .{
             .root_source_file = b.path("tools/instruction_set.zig"),
         });
+        _ = addCompiledFile(b, exe_unit_tests, "result", null, "tools/result.zig");
 
         const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
