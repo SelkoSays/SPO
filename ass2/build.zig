@@ -29,7 +29,8 @@ pub fn build(b: *std.Build) !void {
     exe.linkLibC();
     exe.linkSystemLibrary("readline");
 
-    const is_exe_step = addCompiledFile(b, exe, "instruction_set", "tools/is_gen.zig", "tools/instruction_set.zig");
+    const is_exe_step = addCompiledFile(b, exe, "instruction_set", "tools/is_gen.zig", "tools/instruction_set.zig").?;
+    _ = addCompiledFile(b, exe, "result", null, "tools/result.zig");
 
     const check_comp = try b.allocator.create(std.Build.Step.Compile);
     check_comp.* = exe.*;
@@ -109,10 +110,17 @@ pub fn build(b: *std.Build) !void {
     }
 }
 
-fn addCompiledFile(b: *std.Build, exe: *std.Build.Step.Compile, name: []const u8, generator_path: []const u8, generated_file_path: []const u8) *std.Build.Step.Run {
+fn addCompiledFile(b: *std.Build, exe: *std.Build.Step.Compile, name: []const u8, generator_path: ?[]const u8, generated_file_path: []const u8) ?*std.Build.Step.Run {
+    if (generator_path == null) {
+        exe.root_module.addAnonymousImport(name, .{
+            .root_source_file = b.path(generated_file_path),
+        });
+        return null;
+    }
+
     const is_exe = b.addExecutable(.{
         .name = name,
-        .root_source_file = b.path(generator_path),
+        .root_source_file = b.path(generator_path.?),
         .target = b.host,
     });
     const is_exe_step = b.addRunArtifact(is_exe);

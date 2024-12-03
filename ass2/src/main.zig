@@ -1,5 +1,6 @@
 const std = @import("std");
 const run = @import("runner.zig");
+const obj_r = @import("obj_reader.zig");
 
 pub const std_options: std.Options = .{ .log_level = .warn };
 
@@ -7,6 +8,8 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const alloc = gpa.allocator();
+
+    _ = try obj_r.read(std.io.getStdIn().reader().any(), alloc);
 
     try run.init(alloc);
     defer run.deinit(alloc);
