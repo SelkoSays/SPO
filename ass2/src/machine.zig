@@ -258,7 +258,7 @@ pub const Machine = struct {
         }
     }
 
-    inline fn sleep_time(self: *Self) u64 {
+    inline fn sleep_time(self: *const Self) u64 {
         return std.time.us_per_s / self.clock_speed;
     }
 
@@ -268,7 +268,8 @@ pub const Machine = struct {
             const t_start = std.time.microTimestamp();
             self.step();
             const elapsed = std.time.microTimestamp() - t_start;
-            std.time.sleep((self.sleep_time() -| @as(u64, @intCast(elapsed))) * std.time.ns_per_us);
+            const t = (self.sleep_time() -| @as(u64, @intCast(elapsed)));
+            std.time.sleep(t);
         }
     }
 
@@ -286,160 +287,147 @@ pub const Machine = struct {
     }
 
     pub fn step(self: *Self) void {
-        const instr = self.mem.get(self.regs.PC, Fmt);
-        const opcode: Opcode = std.meta.intToEnum(Opcode, instr.f3.opcode) catch return;
-
-        var instr_size = Is.opTable.get(opcode) orelse 0;
-        if (instr_size > 2 and instr.f3.e) {
-            instr_size += 1;
-        }
-        self.regs.PC += instr_size;
+        const opcode_ni = self.fetch();
+        const opcode: Opcode = std.meta.intToEnum(Opcode, (opcode_ni >> 2) << 2) catch {
+            self.stop();
+            return;
+        };
 
         var address_mode = AddrMode.Normal;
+        const n = (opcode_ni & 0b10) > 0;
+        const i = (opcode_ni & 0b01) > 0;
 
-        if (!instr.f3.n and instr.f3.i) {
+        if (!n and i) {
             address_mode = .Immediate;
-        } else if (instr.f3.n and !instr.f3.i) {
+        } else if (n and !i) {
             address_mode = .Indirect;
         }
 
-        const sic = !instr.f3.n and !instr.f3.i;
+        const sic = !n and !i;
 
-        const n = self.getAddr(u24, instr, instr_size, sic, false, address_mode);
+        var ins_sz = Is.opTable.get(opcode) orelse 0;
+        if (ins_sz > 2) {
+            const e = ((self.mem.get(self.regs.PC, u8) >> 4) & 1);
+            if (e == 1) ins_sz += 1;
+        }
+
+        const operand = switch (opcode) {
+            .STA, .STX, .STL, .JSUB, .STCH, .STB, .STS, .STT, .STSW, .J, .JEQ, .JGT, .JLT => self.getAddr(u24, sic, true, address_mode),
+            .LDCH, .ADDF, .SUBF, .MULF, .DIVF, .COMPF, .RD, .WD, .TD => 0,
+            else => if (ins_sz > 2) self.getAddr(u24, sic, false, address_mode) else 0,
+        };
+
+        const regs = if (ins_sz == 2) self.fetch() else 0;
 
         switch (opcode) {
             // load and store
-            .LDA => self.regs.gpr.A = n,
-            .LDX => self.regs.gpr.X = n,
-            .LDL => self.regs.gpr.L = n,
+            .LDA => self.regs.gpr.A = operand,
+            .LDX => self.regs.gpr.X = operand,
+            .LDL => self.regs.gpr.L = operand,
             .STA => if (address_mode != .Immediate) {
-                self.mem.set(
-                    self.getAddr(u24, instr, instr_size, sic, true, address_mode),
-                    self.regs.gpr.A,
-                );
+                self.mem.set(operand, self.regs.gpr.A);
             },
             .STX => if (address_mode != .Immediate) {
-                self.mem.set(
-                    self.getAddr(u24, instr, instr_size, sic, true, address_mode),
-                    self.regs.gpr.X,
-                );
+                self.mem.set(operand, self.regs.gpr.X);
             },
             .STL => if (address_mode != .Immediate) {
-                self.mem.set(
-                    self.getAddr(u24, instr, instr_size, sic, true, address_mode),
-                    self.regs.gpr.L,
-                );
+                self.mem.set(operand, self.regs.gpr.L);
             },
             // fixed point arithmetic
-            .ADD => self.regs.gpr.A +%= n,
-            .SUB => self.regs.gpr.A -%= n,
-            .MUL => self.regs.gpr.A *%= n,
-            .DIV => self.regs.gpr.A /= n,
-            .COMP => self.regs.SW.s.cc = comp(self.regs.gpr.A, n),
+            .ADD => self.regs.gpr.A +%= operand,
+            .SUB => self.regs.gpr.A -%= operand,
+            .MUL => self.regs.gpr.A *%= operand,
+            .DIV => self.regs.gpr.A /= operand,
+            .COMP => self.regs.SW.s.cc = comp(self.regs.gpr.A, operand),
             .TIX => {
                 self.regs.gpr.X +%= 1;
-                self.regs.SW.s.cc = comp(self.regs.gpr.X, n);
+                self.regs.SW.s.cc = comp(self.regs.gpr.X, operand);
             },
             // jumps
             .JEQ => if (self.regs.SW.s.cc == .Equal) {
-                self.regs.PC = n;
+                self.regs.PC = operand;
             },
             .JGT => if (self.regs.SW.s.cc == .Greater) {
-                self.regs.PC = n;
+                self.regs.PC = operand;
             },
             .JLT => if (self.regs.SW.s.cc == .Less) {
-                self.regs.PC = n;
+                self.regs.PC = operand;
             },
             .J => {
-                if (self.regs.PC == (n - instr_size)) self.stop();
-                self.regs.PC = n;
+                if (self.regs.PC == (operand + ins_sz)) self.stop();
+                self.regs.PC = operand;
             },
             // bit manipulation
-            .AND => self.regs.gpr.A &= n,
-            .OR => self.regs.gpr.A |= n,
+            .AND => self.regs.gpr.A &= operand,
+            .OR => self.regs.gpr.A |= operand,
             // jump to subroutine
             .JSUB => {
-                self.regs.gpr.L = self.regs.PC;
-                self.regs.PC = n;
+                self.regs.gpr.L = self.regs.PC + ins_sz - 1;
+                self.regs.PC = operand;
             },
             .RSUB => self.regs.PC = self.regs.gpr.L,
             // load and store byte
             .LDCH => {
                 self.regs.gpr.A &= ~@as(u24, 0xFF);
-                self.regs.gpr.A |= self.getAddr(u8, instr, instr_size, sic, false, address_mode);
+                self.regs.gpr.A |= self.getAddr(u8, sic, false, address_mode);
             },
             .STCH => if (address_mode != .Immediate) {
-                self.mem.set(
-                    self.getAddr(u24, instr, instr_size, sic, true, address_mode),
-                    @as(u8, @truncate(self.regs.gpr.A & 0xFF)),
-                );
+                self.mem.set(operand, @as(u8, @truncate(self.regs.gpr.A & 0xFF)));
             },
             // floating point arithmetic
             .ADDF => {
-                self.regs.F += self.getAddr(f64, instr, instr_size, sic, false, address_mode);
+                self.regs.F += self.getAddr(f64, sic, false, address_mode);
                 self.regs.F = hl.chopFloat(self.regs.F);
             },
             .SUBF => {
-                self.regs.F -= self.getAddr(f64, instr, instr_size, sic, false, address_mode);
+                self.regs.F -= self.getAddr(f64, sic, false, address_mode);
                 self.regs.F = hl.chopFloat(self.regs.F);
             },
             .MULF => {
-                self.regs.F *= self.getAddr(f64, instr, instr_size, sic, false, address_mode);
+                self.regs.F *= self.getAddr(f64, sic, false, address_mode);
                 self.regs.F = hl.chopFloat(self.regs.F);
             },
             .DIVF => {
-                self.regs.F /= self.getAddr(f64, instr, instr_size, sic, false, address_mode);
+                self.regs.F /= self.getAddr(f64, sic, false, address_mode);
                 self.regs.F = hl.chopFloat(self.regs.F);
             },
             .COMPF => {
-                const f = self.getAddr(f64, instr, instr_size, sic, false, address_mode);
+                const f = self.getAddr(f64, sic, false, address_mode);
                 self.regs.SW.s.cc = comp(self.regs.F, f);
             },
 
             // load and store
-            .LDB => self.regs.gpr.B = n,
-            .LDS => self.regs.gpr.S = n,
+            .LDB => self.regs.gpr.B = operand,
+            .LDS => self.regs.gpr.S = operand,
             // .LDF => self.regs.F = self.getAddrF(instr, instr_size, sic, getFnF),
-            .LDT => self.regs.gpr.T = n,
+            .LDT => self.regs.gpr.T = operand,
             .STB => if (address_mode != .Immediate) {
-                self.mem.set(
-                    self.getAddr(u24, instr, instr_size, sic, true, address_mode),
-                    self.regs.gpr.B,
-                );
+                self.mem.set(operand, self.regs.gpr.B);
             },
             .STS => if (address_mode != .Immediate) {
-                self.mem.set(
-                    self.getAddr(u24, instr, instr_size, sic, true, address_mode),
-                    self.regs.gpr.S,
-                );
+                self.mem.set(operand, self.regs.gpr.S);
             },
-            // .STF => self.mem.setF(n, self.regs.F),
+            .STF => self.mem.setF(operand, self.regs.F),
             .STT => if (address_mode != .Immediate) {
-                self.mem.set(
-                    self.getAddr(u24, instr, instr_size, sic, true, address_mode),
-                    self.regs.gpr.T,
-                );
+                self.mem.set(operand, self.regs.gpr.T);
             },
             // special load and store
             // .LPS => {},
             // .STI => {},
             .STSW => if (address_mode != .Immediate) {
-                self.mem.set(
-                    self.getAddr(u24, instr, instr_size, sic, true, address_mode),
-                    self.regs.SW,
-                );
+                self.mem.set(operand, self.regs.SW);
             },
             // devices
             .RD => {
-                const dev_ = self.getAddr(u8, instr, instr_size, sic, false, address_mode);
+                const dev_ = self.getAddr(u8, sic, false, address_mode);
                 self.regs.gpr.A = self.devs.getDevice(dev_).read();
             },
             .WD => {
-                const dev_ = self.getAddr(u8, instr, instr_size, sic, false, address_mode);
+                const dev_ = self.getAddr(u8, sic, false, address_mode);
                 self.devs.getDevice(dev_).write(@truncate(self.regs.gpr.A & 0xFF));
             },
             .TD => {
-                const dev_ = self.getAddr(u8, instr, instr_size, sic, false, address_mode);
+                const dev_ = self.getAddr(u8, sic, false, address_mode);
                 const t = self.devs.getDevice(dev_).@"test"();
                 if (!t) {
                     self.regs.SW.s.cc = .Greater;
@@ -458,47 +446,47 @@ pub const Machine = struct {
 
             // ***** SIC/XE Format 2 *****
             .ADDR => {
-                const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
-                const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
-                self.regs.set(@enumFromInt(instr.f2.r2), r2 +% r1);
+                const r1 = self.regs.get(reg1(regs), u24);
+                const r2 = self.regs.get(reg2(regs), u24);
+                self.regs.set(reg2(regs), r2 +% r1);
             },
             .SUBR => {
-                const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
-                const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
-                self.regs.set(@enumFromInt(instr.f2.r2), r2 -% r1);
+                const r1 = self.regs.get(reg1(regs), u24);
+                const r2 = self.regs.get(reg2(regs), u24);
+                self.regs.set(reg2(regs), r2 -% r1);
             },
             .MULR => {
-                const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
-                const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
-                self.regs.set(@enumFromInt(instr.f2.r2), r2 *% r1);
+                const r1 = self.regs.get(reg1(regs), u24);
+                const r2 = self.regs.get(reg2(regs), u24);
+                self.regs.set(reg2(regs), r2 *% r1);
             },
             .DIVR => {
-                const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
-                const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
-                self.regs.set(@enumFromInt(instr.f2.r2), r2 / r1);
+                const r1 = self.regs.get(reg1(regs), u24);
+                const r2 = self.regs.get(reg2(regs), u24);
+                self.regs.set(reg2(regs), r2 / r1);
             },
             .COMPR => {
-                const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
-                const r2 = self.regs.get(@enumFromInt(instr.f2.r2), u24);
+                const r1 = self.regs.get(reg1(regs), u24);
+                const r2 = self.regs.get(reg2(regs), u24);
                 self.regs.SW.s.cc = comp(r1, r2);
             },
             .SHIFTL => {
-                const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
-                self.regs.set(@enumFromInt(instr.f2.r2), r1 << instr.f2.r2);
+                const r1 = self.regs.get(reg1(regs), u24);
+                self.regs.set(reg2(regs), r1 << @truncate(regs & 0xF));
             },
             .SHIFTR => {
-                const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
-                self.regs.set(@enumFromInt(instr.f2.r2), r1 >> instr.f2.r2);
+                const r1 = self.regs.get(reg1(regs), u24);
+                self.regs.set(reg2(regs), r1 >> @truncate(regs & 0xF));
             },
             .RMO => {
-                const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
-                self.regs.set(@enumFromInt(instr.f2.r2), r1);
+                const r1 = self.regs.get(reg1(regs), u24);
+                self.regs.set(reg2(regs), r1);
             },
             // .SVC => {},
-            .CLEAR => self.regs.set(@enumFromInt(instr.f2.r1), @as(u24, 0)),
+            .CLEAR => self.regs.set(reg1(regs), @as(u24, 0)),
             .TIXR => {
                 self.regs.gpr.X +%= 1;
-                const r1 = self.regs.get(@enumFromInt(instr.f2.r1), u24);
+                const r1 = self.regs.get(reg1(regs), u24);
                 self.regs.SW.s.cc = comp(self.regs.gpr.X, r1);
             },
 
@@ -508,6 +496,18 @@ pub const Machine = struct {
 
             else => @panic("unhandeled instruction"),
         }
+    }
+
+    inline fn mv_back(self: *Self, n: u24) void {
+        self.regs.PC -%= n;
+    }
+
+    inline fn reg1(r: u8) RegIdx {
+        return @enumFromInt(r >> 4);
+    }
+
+    inline fn reg2(r: u8) RegIdx {
+        return @enumFromInt(r & 0xF);
     }
 
     fn comp(v1: anytype, v2: @TypeOf(v1)) Ord {
@@ -539,27 +539,42 @@ pub const Machine = struct {
         };
     }
 
-    fn getAddr(self: *Self, comptime T: type, instr: Is.Fmt, instr_size: u3, sic: bool, comptime is_store: bool, addr_mode: AddrMode) T {
-        if (instr_size <= 2) {
-            unreachable;
-        }
-
+    fn getAddr(self: *Self, comptime T: type, sic: bool, comptime is_store: bool, addr_mode: AddrMode) T {
         const am: AddrMode = if (is_store) @enumFromInt(@intFromEnum(addr_mode) -| 1) else addr_mode;
 
-        var plus = self.regs.gpr.X * @intFromBool(instr.fs.x);
+        const xbpe_addr = self.fetch();
+        const x = (xbpe_addr & 0x80) >> 7;
+        const b = (xbpe_addr & 0x40) >> 6;
+        const p = (xbpe_addr & 0x20) >> 5;
+        const e = (xbpe_addr & 0x10) >> 4;
+
+        const a = self.fetch();
+
+        var plus = self.regs.gpr.X * x;
 
         if (sic) {
-            return self.get(T, instr.fs.addr + plus, am, @bitSizeOf(u15));
+            const addr = (@as(u24, xbpe_addr & 0x7F) << 8) | a;
+            return self.get(T, addr + plus, am, @bitSizeOf(u15));
         }
 
-        plus += self.regs.gpr.B * @intFromBool(instr.f3.b);
-        plus += self.regs.PC * @intFromBool(instr.f3.p);
+        plus += self.regs.gpr.B * b;
 
-        if (instr.f3.e) {
-            return self.get(T, @truncate(@as(u25, @bitCast(@as(i25, instr.f4.addr) + @as(i25, plus)))), am, @bitSizeOf(u20));
+        if (e > 0) {
+            const addr: i20 = @bitCast(((@as(u20, xbpe_addr & 0xF) << 16) | (@as(u20, a) << 8)) | self.fetch());
+            plus += self.regs.PC * p;
+            return self.get(T, @truncate(@as(u25, @bitCast(@as(i25, addr) + @as(i25, plus)))), am, @bitSizeOf(u20));
         }
 
-        return self.get(T, @truncate(@as(u25, @bitCast(@as(i25, instr.f3.addr) + @as(i25, plus)))), am, @bitSizeOf(u12));
+        plus += self.regs.PC * p;
+
+        const addr: i12 = @bitCast((@as(u12, xbpe_addr & 0xF) << 8) | a);
+        return self.get(T, @truncate(@as(u25, @bitCast(@as(i25, addr) + @as(i25, plus)))), am, @bitSizeOf(u12));
+    }
+
+    fn fetch(self: *Self) u8 {
+        const ret = self.mem.get(self.regs.PC, u8);
+        self.regs.PC += 1;
+        return ret;
     }
 };
 
@@ -602,119 +617,119 @@ test "Mem.set, Mem.get" {
     try std.testing.expectEqualSlices(u8, expected, buf[0..hl.sizeOf(u48)]);
 }
 
-test "Machine.step" {
-    var buf = [_]u8{0} ** 100;
+// test "Machine.step" {
+//     var buf = [_]u8{0} ** 100;
 
-    var m = Machine.init(&buf, undefined);
+//     var m = Machine.init(&buf, undefined);
 
-    m.mem.set(10, @as(u24, 20));
+//     m.mem.set(10, @as(u24, 20));
 
-    try std.testing.expectEqual(20, m.mem.get(10, u24));
+//     try std.testing.expectEqual(20, m.mem.get(10, u24));
 
-    m.mem.set(0, Is.Fmt{ .f3 = .{
-        .opcode = @truncate(Opcode.LDA.int()),
-        .n = false,
-        .i = true,
-        .x = false,
-        .b = false,
-        .p = false,
-        .e = false,
-        .addr = 1,
-        ._pad = 0,
-    } });
+//     m.mem.set(0, Is.Fmt{ .f3 = .{
+//         .opcode = @truncate(Opcode.LDA.int()),
+//         .n = false,
+//         .i = true,
+//         .x = false,
+//         .b = false,
+//         .p = false,
+//         .e = false,
+//         .addr = 1,
+//         ._pad = 0,
+//     } });
 
-    try std.testing.expectEqual(@as(u32, @bitCast(Is.Fmt{ .f3 = .{
-        .opcode = @truncate(Opcode.LDA.int()),
-        .n = false,
-        .i = true,
-        .x = false,
-        .b = false,
-        .p = false,
-        .e = false,
-        .addr = 1,
-        ._pad = 0,
-    } })), m.mem.getE(0, u32, .big));
+//     try std.testing.expectEqual(@as(u32, @bitCast(Is.Fmt{ .f3 = .{
+//         .opcode = @truncate(Opcode.LDA.int()),
+//         .n = false,
+//         .i = true,
+//         .x = false,
+//         .b = false,
+//         .p = false,
+//         .e = false,
+//         .addr = 1,
+//         ._pad = 0,
+//     } })), m.mem.getE(0, u32, .big));
 
-    m.mem.set(3, Is.Fmt{ .f3 = .{
-        .opcode = @truncate(Opcode.ADD.int()),
-        .n = true,
-        .i = true,
-        .x = false,
-        .b = false,
-        .p = false,
-        .e = false,
-        .addr = 10,
-        ._pad = 0,
-    } });
+//     m.mem.set(3, Is.Fmt{ .f3 = .{
+//         .opcode = @truncate(Opcode.ADD.int()),
+//         .n = true,
+//         .i = true,
+//         .x = false,
+//         .b = false,
+//         .p = false,
+//         .e = false,
+//         .addr = 10,
+//         ._pad = 0,
+//     } });
 
-    try std.testing.expectEqual(@as(u32, @bitCast(Is.Fmt{ .f3 = .{
-        .opcode = @truncate(Opcode.ADD.int()),
-        .n = true,
-        .i = true,
-        .x = false,
-        .b = false,
-        .p = false,
-        .e = false,
-        .addr = 10,
-        ._pad = 0,
-    } })), m.mem.getE(3, u32, .big));
+//     try std.testing.expectEqual(@as(u32, @bitCast(Is.Fmt{ .f3 = .{
+//         .opcode = @truncate(Opcode.ADD.int()),
+//         .n = true,
+//         .i = true,
+//         .x = false,
+//         .b = false,
+//         .p = false,
+//         .e = false,
+//         .addr = 10,
+//         ._pad = 0,
+//     } })), m.mem.getE(3, u32, .big));
 
-    m.mem.set(6, Is.Fmt{ .f3 = .{
-        .opcode = @truncate(Opcode.STA.int()),
-        .n = true,
-        .i = true,
-        .x = false,
-        .b = false,
-        .p = false,
-        .e = false,
-        .addr = 10,
-        ._pad = 0,
-    } });
+//     m.mem.set(6, Is.Fmt{ .f3 = .{
+//         .opcode = @truncate(Opcode.STA.int()),
+//         .n = true,
+//         .i = true,
+//         .x = false,
+//         .b = false,
+//         .p = false,
+//         .e = false,
+//         .addr = 10,
+//         ._pad = 0,
+//     } });
 
-    try std.testing.expectEqual(@as(u32, @bitCast(Is.Fmt{ .f3 = .{
-        .opcode = @truncate(Opcode.STA.int()),
-        .n = true,
-        .i = true,
-        .x = false,
-        .b = false,
-        .p = false,
-        .e = false,
-        .addr = 10,
-        ._pad = 0,
-    } })), m.mem.getE(6, u32, .big));
+//     try std.testing.expectEqual(@as(u32, @bitCast(Is.Fmt{ .f3 = .{
+//         .opcode = @truncate(Opcode.STA.int()),
+//         .n = true,
+//         .i = true,
+//         .x = false,
+//         .b = false,
+//         .p = false,
+//         .e = false,
+//         .addr = 10,
+//         ._pad = 0,
+//     } })), m.mem.getE(6, u32, .big));
 
-    m.step();
-    try std.testing.expectEqual(1, m.regs.gpr.A);
+//     m.step();
+//     try std.testing.expectEqual(1, m.regs.gpr.A);
 
-    m.step();
-    try std.testing.expectEqual(21, m.regs.gpr.A);
+//     m.step();
+//     try std.testing.expectEqual(21, m.regs.gpr.A);
 
-    m.step();
-    try std.testing.expectEqual(21, m.mem.get(10, u24));
-}
+//     m.step();
+//     try std.testing.expectEqual(21, m.mem.get(10, u24));
+// }
 
-test "STA" {
-    var buf = [_]u8{0} ** 100;
+// test "STA" {
+//     var buf = [_]u8{0} ** 100;
 
-    var m = Machine.init(&buf, undefined);
+//     var m = Machine.init(&buf, undefined);
 
-    m.regs.gpr.A = 10;
+//     m.regs.gpr.A = 10;
 
-    m.mem.set(0, Is.Fmt{ .f3 = .{
-        .opcode = @truncate(Opcode.STA.int()),
-        .n = true,
-        .i = true,
-        .x = false,
-        .b = false,
-        .p = false,
-        .e = false,
-        .addr = 3,
-        ._pad = 0,
-    } });
+//     m.mem.set(0, Is.Fmt{ .f3 = .{
+//         .opcode = @truncate(Opcode.STA.int()),
+//         .n = true,
+//         .i = true,
+//         .x = false,
+//         .b = false,
+//         .p = false,
+//         .e = false,
+//         .addr = 3,
+//         ._pad = 0,
+//     } });
 
-    m.step();
-    try std.testing.expectEqual(10, m.mem.get(3, u24));
-}
+//     m.step();
+//     try std.testing.expectEqual(10, m.mem.get(3, u24));
+// }
 
 test "Machine.load" {
     var buf = [_]u8{0} ** 100;
@@ -737,3 +752,43 @@ test "Machine.load" {
 
     try std.testing.expectEqual(1, m.regs.PC);
 }
+
+test "test_arith" {
+    var buf = [_]u8{0} ** 200;
+    var m = Machine.init(&buf, undefined);
+
+    const str =
+        \\HARITH 00000000006F
+        \\T00000006000007000004
+        \\T0000151E4B200F4B20184B20214B202A4B20333F2FFD032FD61B2FD60F2FD64F0000
+        \\T0000331E032FCA1F2FCA0F2FCD4F0000032FBE232FBE0F2FC44F0000032FB2272FB2
+        \\T0000511E0F2FBB4F0000032FA6272FA6232FA30F2FAF032F9A1F2FA90F2FA64F0000
+        \\E000015
+    ;
+
+    try m.load(str, true, std.testing.allocator);
+
+    m.start();
+
+    const res = [_]u8{ 0, 0, 7, 0, 0, 4, 0, 0, 11, 0, 0, 3, 0, 0, 28, 0, 0, 1, 0, 0, 3 };
+    try std.testing.expectEqualSlices(u8, &res, &m.mem.get(0, [7 * 3]u8));
+}
+
+// test "test_horner" {
+//     var buf = [_]u8{0} ** 300;
+//     var m = Machine.init(&buf, undefined);
+
+//     const str =
+//         \\HHORNER000000000059
+//         \\T0000001E0000010000020000030000040000050000020000000500000100051D0001
+//         \\T00001E1EAC05692FDDB400A01533201F37201C6D0003984190311B8000232FD59431
+//         \\T00003C1D6D00039C416D000190413F2FDC6D0003984190311B80000F2FBC3F2FFD
+//         \\E000015
+//     ;
+
+//     try m.load(str, true, std.testing.allocator);
+
+//     m.start();
+
+//     try std.testing.expectEqual(57, m.mem.get(0x12, u24));
+// }

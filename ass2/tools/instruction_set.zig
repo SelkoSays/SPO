@@ -159,6 +159,19 @@ pub const Fmt = packed union {
     fs: FmtSIC,
     f3: Fmt3,
     f4: Fmt4,
+
+    pub fn from_u32(n: u32) Fmt {
+        return Fmt{ .f4 = Fmt4{
+            .opcode = @truncate(n >> (32 - 6)),
+            .n = @bitCast(@as(u1, @truncate((n >> (32 - 7)) & 1))),
+            .i = @bitCast(@as(u1, @truncate((n >> (32 - 8)) & 1))),
+            .x = @bitCast(@as(u1, @truncate((n >> (32 - 9)) & 1))),
+            .b = @bitCast(@as(u1, @truncate((n >> (32 - 10)) & 1))),
+            .p = @bitCast(@as(u1, @truncate((n >> (32 - 11)) & 1))),
+            .e = @bitCast(@as(u1, @truncate((n >> (32 - 12)) & 1))),
+            .addr = @truncate(n & ((1 << 20) - 1)),
+        } };
+    }
 };
 
 const Fmt1 = packed struct(u32) { opcode: u8, _pad: u24 };
