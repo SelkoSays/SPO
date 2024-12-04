@@ -798,21 +798,21 @@ test "test_arith" {
     try std.testing.expectEqualSlices(u8, &res, &m.mem.get(0, [7 * 3]u8));
 }
 
-// test "test_horner" {
-//     var buf = [_]u8{0} ** 300;
-//     var m = Machine.init(&buf, undefined);
+test "test_horner" {
+    var buf = [_]u8{0} ** 300;
+    var m = Machine.init(&buf, undefined);
 
-//     const str =
-//         \\HHORNER000000000059
-//         \\T0000001E0000010000020000030000040000050000020000000500000100051D0001
-//         \\T00001E1EAC05692FDDB400A01533201F37201C6D0003984190311B8000232FD59431
-//         \\T00003C1D6D00039C416D000190413F2FDC6D0003984190311B80000F2FBC3F2FFD
-//         \\E000015
-//     ;
+    const str =
+        \\HHORNER000000000059
+        \\T0000001E0000010000020000030000040000050000020000000500000100051D0001
+        \\T00001E1EAC05692FDDB400A01533201F37201C6D0003984190311B8000232FD59431
+        \\T00003C1D6D00039C416D000190413F2FDC6D0003984190311B80000F2FBC3F2FFD
+        \\E000015
+    ;
 
-//     try m.load(str, true, std.testing.allocator);
+    try m.load(str, true, std.testing.allocator);
 
-//     m.start();
+    m.start();
 
-//     try std.testing.expectEqual(57, m.mem.get(0x12, u24));
-// }
+    try std.testing.expectEqual(57, m.mem.get(0x12, u24));
+}
