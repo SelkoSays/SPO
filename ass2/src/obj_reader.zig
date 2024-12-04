@@ -58,30 +58,29 @@ pub const Code = struct {
         alloc.free(self.records);
     }
 
-    // FIX: Take in a writer
-    pub fn display(self: *Self) void {
-        std.debug.print("H{s}{X:0>6}{X:0>6}\n", .{ self.header.name, self.header.addr, self.header.len });
+    pub fn display(self: *const Self, writer: std.io.AnyWriter) !void {
+        try writer.print("H{s}{X:0>6}{X:0>6}\n", .{ self.header.name, self.header.addr, self.header.len });
         for (self.records) |*r| {
             switch (r.*) {
                 .T => |t| {
-                    std.debug.print("T{X:0>6}{X:0>2}", .{ t.addr, t.len });
+                    try writer.print("T{X:0>6}{X:0>2}", .{ t.addr, t.len });
                     for (t.code) |c| {
-                        std.debug.print("{X:0>2}", .{c});
+                        try writer.print("{X:0>2}", .{c});
                     }
-                    std.debug.print("\n", .{});
+                    try writer.print("\n", .{});
                 },
                 .M => |m| {
-                    std.debug.print("M{X:0>6}{X:0>2}", .{ m.addr, m.size });
+                    try writer.print("M{X:0>6}{X:0>2}", .{ m.addr, m.size });
                     if (m.sign != null) {
-                        std.debug.print("{c}{X:0>6}", .{ m.sign.?, m.sym_name });
+                        try writer.print("{c}{X:0>6}", .{ m.sign.?, m.sym_name });
                     }
-                    std.debug.print("\n", .{});
+                    try writer.print("\n", .{});
                 },
                 else => {},
             }
         }
 
-        std.debug.print("E{X:0>6}", .{self.start_addr});
+        try writer.print("E{X:0>6}", .{self.start_addr});
     }
 };
 
@@ -315,5 +314,9 @@ test from_str {
         }},
     }, code);
 
-    code.display();
+    var out = std.ArrayList(u8).init(std.testing.allocator);
+    defer out.deinit();
+    try code.display(out.writer().any());
+
+    try std.testing.expectEqualStrings(str, out.items);
 }
