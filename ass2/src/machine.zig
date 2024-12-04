@@ -325,13 +325,22 @@ pub const Machine = struct {
             .LDX => self.regs.gpr.X = operand,
             .LDL => self.regs.gpr.L = operand,
             .STA => if (address_mode != .Immediate) {
-                self.mem.set(operand, self.regs.gpr.A);
+                self.mem.set(
+                    operand,
+                    self.regs.gpr.A,
+                );
             },
             .STX => if (address_mode != .Immediate) {
-                self.mem.set(operand, self.regs.gpr.X);
+                self.mem.set(
+                    operand,
+                    self.regs.gpr.X,
+                );
             },
             .STL => if (address_mode != .Immediate) {
-                self.mem.set(operand, self.regs.gpr.L);
+                self.mem.set(
+                    operand,
+                    self.regs.gpr.L,
+                );
             },
             // fixed point arithmetic
             .ADD => self.regs.gpr.A +%= operand,
@@ -362,7 +371,7 @@ pub const Machine = struct {
             .OR => self.regs.gpr.A |= operand,
             // jump to subroutine
             .JSUB => {
-                self.regs.gpr.L = self.regs.PC + ins_sz - 1;
+                self.regs.gpr.L = self.regs.PC;
                 self.regs.PC = operand;
             },
             .RSUB => self.regs.PC = self.regs.gpr.L,
@@ -372,7 +381,10 @@ pub const Machine = struct {
                 self.regs.gpr.A |= self.getAddr(u8, sic, false, address_mode);
             },
             .STCH => if (address_mode != .Immediate) {
-                self.mem.set(operand, @as(u8, @truncate(self.regs.gpr.A & 0xFF)));
+                self.mem.set(
+                    operand,
+                    @as(u8, @truncate(self.regs.gpr.A & 0xFF)),
+                );
             },
             // floating point arithmetic
             .ADDF => {
@@ -402,20 +414,32 @@ pub const Machine = struct {
             // .LDF => self.regs.F = self.getAddrF(instr, instr_size, sic, getFnF),
             .LDT => self.regs.gpr.T = operand,
             .STB => if (address_mode != .Immediate) {
-                self.mem.set(operand, self.regs.gpr.B);
+                self.mem.set(
+                    operand,
+                    self.regs.gpr.B,
+                );
             },
             .STS => if (address_mode != .Immediate) {
-                self.mem.set(operand, self.regs.gpr.S);
+                self.mem.set(
+                    operand,
+                    self.regs.gpr.S,
+                );
             },
             .STF => self.mem.setF(operand, self.regs.F),
             .STT => if (address_mode != .Immediate) {
-                self.mem.set(operand, self.regs.gpr.T);
+                self.mem.set(
+                    operand,
+                    self.regs.gpr.T,
+                );
             },
             // special load and store
             // .LPS => {},
             // .STI => {},
             .STSW => if (address_mode != .Immediate) {
-                self.mem.set(operand, self.regs.SW);
+                self.mem.set(
+                    operand,
+                    self.regs.SW,
+                );
             },
             // devices
             .RD => {
