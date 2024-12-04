@@ -27,7 +27,7 @@ pub fn Result(comptime O: type, comptime E: type) type {
             return self.* == .Ok;
         }
 
-        pub fn unwrap(self: *const Self) !O {
+        pub fn try_unwrap(self: *const Self) !O {
             return switch (self.*) {
                 .Ok => |ok_| ok_,
                 .Err => |err_| blk: {
@@ -41,6 +41,27 @@ pub fn Result(comptime O: type, comptime E: type) type {
 
                     if (E == anyerror) {
                         break :blk err_;
+                    }
+
+                    @compileError("Type E should be of type anyerror or has to have a method 'any' that returns anyerror");
+                },
+            };
+        }
+
+        pub fn unwrap(self: *const Self) O {
+            return switch (self.*) {
+                .Ok => |ok_| ok_,
+                .Err => |err_| {
+                    if (@hasDecl(E, "display")) {
+                        _ = err_.display();
+                    }
+
+                    if (@hasDecl(E, "any")) {
+                        std.debug.panic("{}", .{err_.any()});
+                    }
+
+                    if (E == anyerror) {
+                        std.debug.panic("{}", .{err_});
                     }
 
                     @compileError("Type E should be of type anyerror or has to have a method 'any' that returns anyerror");

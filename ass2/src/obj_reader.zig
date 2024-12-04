@@ -121,7 +121,7 @@ pub fn from_str(str: []const u8, alloc: Allocator) !Result(Code) {
 
     line_num += 1;
 
-    const header = r_header.unwrap() catch unreachable;
+    const header = r_header.unwrap();
 
     var records = std.ArrayList(Code.Record).init(alloc);
     defer {
@@ -141,7 +141,7 @@ pub fn from_str(str: []const u8, alloc: Allocator) !Result(Code) {
             return t.map_ok(Code, null);
         }
 
-        const tt = t.unwrap() catch unreachable;
+        const tt = t.unwrap();
         try records.append(tt);
 
         _ = it.next();
@@ -166,7 +166,7 @@ pub fn from_str(str: []const u8, alloc: Allocator) !Result(Code) {
 
     var code = Code{
         .header = header,
-        .start_addr = 0,
+        .start_addr = header.addr,
         .records = try records.toOwnedSlice(),
     };
 
@@ -243,6 +243,14 @@ fn read_T_record(line: []const u8, line_num: u32, alloc: Allocator) !Result(Code
     const addr = read_int(u24, line[1..7]) catch return parse_err(R, 1, line_num);
     const len: u8 = read_int(u8, line[7..9]) catch return parse_err(R, 1, line_num);
 
+    if (len > 0x1E) {
+        return R.err(.{
+            .type = error.TRecordCodeLengthTooBig,
+            .line = line_num,
+            .col = 9,
+        });
+    }
+
     if (line[9..].len != (len * 2)) {
         return R.err(.{
             .type = error.WrongTRecordCodeLength,
@@ -292,12 +300,12 @@ test from_str {
 
     const r_code = try from_str(str, std.testing.allocator);
     if (r_code.is_err()) {
-        _ = r_code.unwrap() catch |err| {
+        _ = r_code.try_unwrap() catch |err| {
             std.log.err("Error: {}", .{err});
             return err;
         };
     }
-    var code = r_code.unwrap() catch unreachable;
+    var code = r_code.unwrap();
     defer code.deinit(std.testing.allocator);
 
     try std.testing.expectEqualDeep(Code{

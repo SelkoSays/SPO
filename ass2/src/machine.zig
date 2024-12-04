@@ -1,4 +1,6 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+
 const hl = @import("helper.zig");
 const dev = @import("device.zig");
 const Device = dev.Device;
@@ -6,6 +8,7 @@ const Devices = dev.Devices;
 const Is = @import("instruction_set");
 const Opcode = Is.Opcode;
 const Fmt = Is.Fmt;
+const obj = @import("obj_reader.zig");
 
 pub const RegIdx = enum(u4) {
     A = 0x0,
@@ -77,6 +80,7 @@ const Regs = struct {
             self.F = val;
         } else if (@TypeOf(val) == u8) {
             if (ri != RegIdx.A) std.debug.panic("Register {} cannot be set with an 8-bit number.", .{ri});
+            self.gpr.rt.A &= ~@as(u24, 0xFF);
             self.gpr.rt.A |= val;
         } else {
             switch (ri) {
@@ -125,6 +129,10 @@ const Mem = struct {
         }
 
         return ret;
+    }
+
+    pub fn setSlice(self: *Self, addr: u24, slice: []const u8) void {
+        @memcpy(self.buf[addr .. addr + slice.len], slice);
     }
 
     pub fn set(self: *Self, addr: u24, val: anytype) void {
@@ -189,6 +197,7 @@ pub const Machine = struct {
     devs: *OSDevices,
     clock_speed: u64 = 1, // [kHz]
     stopped: bool = true,
+    code: ?obj.Code = null,
 
     pub const OSDevices = Devices(256);
 
@@ -206,6 +215,40 @@ pub const Machine = struct {
             .mem = .{ .buf = buf },
             .devs = devs,
         };
+    }
+
+    pub fn load(self: *Self, path: []const u8, comptime is_str: bool, alloc: Allocator) !void {
+        const r_code = try if (is_str) blk: {
+            break :blk obj.from_str(path, alloc);
+        } else blk: {
+            const cur_dir = std.fs.cwd();
+            const f = cur_dir.openFile(path, .{ .mode = .read_only }) catch |err| {
+                std.log.err("{}", .{err});
+                return;
+            };
+            defer f.close();
+
+            break :blk try obj.from_reader(f.reader().any(), alloc);
+        };
+
+        if (r_code.is_err()) {
+            _ = try r_code.try_unwrap();
+        }
+
+        const code = r_code.unwrap();
+        defer code.deinit(alloc);
+
+        for (code.records) |r| {
+            switch (r) {
+                .T => |t| {
+                    self.mem.setSlice(t.addr, t.code);
+                },
+                // .M => |m| {},
+                else => return error.UnsupportedRecord,
+            }
+        }
+
+        self.regs.PC = code.start_addr;
     }
 
     pub fn setSpeed(self: *Self, speed_kHz: u64) void {
@@ -244,9 +287,7 @@ pub const Machine = struct {
 
     pub fn step(self: *Self) void {
         const instr = self.mem.get(self.regs.PC, Fmt);
-        const opcode: Opcode = std.meta.intToEnum(Opcode, instr.f3.opcode) catch blk: {
-            break :blk @enumFromInt(instr.f1.opcode);
-        };
+        const opcode: Opcode = std.meta.intToEnum(Opcode, instr.f3.opcode) catch return;
 
         var instr_size = Is.opTable.get(opcode) orelse 0;
         if (instr_size > 2 and instr.f3.e) {
@@ -469,11 +510,6 @@ pub const Machine = struct {
         }
     }
 
-    fn notSicErr(self: *Self) void {
-        // TODO: handle
-        _ = self;
-    }
-
     fn comp(v1: anytype, v2: @TypeOf(v1)) Ord {
         if (v1 < v2) {
             return .Less;
@@ -678,4 +714,26 @@ test "STA" {
 
     m.step();
     try std.testing.expectEqual(10, m.mem.get(3, u24));
+}
+
+test "Machine.load" {
+    var buf = [_]u8{0} ** 100;
+    const str =
+        \\Hprg   000001000011
+        \\T00000111B400510000510001510002510003510004
+        \\E000001
+    ;
+
+    var m = Machine.init(&buf, undefined);
+
+    try m.load(str, true, std.testing.allocator);
+
+    const prog = m.mem.get(1, [17]u8);
+    try std.testing.expectEqualSlices(u8, &.{
+        0xB4, 0x00, 0x51, 0x00, 0x00, 0x51, 0x00, 0x01,
+        0x51, 0x00, 0x02, 0x51, 0x00, 0x03, 0x51, 0x00,
+        0x04,
+    }, &prog);
+
+    try std.testing.expectEqual(1, m.regs.PC);
 }
