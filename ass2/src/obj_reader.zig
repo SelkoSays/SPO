@@ -149,14 +149,20 @@ pub fn from_str(str: []const u8, alloc: Allocator) !Result(Code) {
         line_num += 1;
     }
 
-    // TODO: parse M records
-    while (it.peek() != null) {
-        if (it.peek().?[0] != 'M') {
-            break;
-        }
-        line_num += 1;
-        _ = it.next();
+    if (it.peek() != null and it.peek().?[0] == 'M') {
+        return R.err(.{
+            .type = error.MRecordsNotSupported,
+            .line = line_num,
+        });
     }
+    // TODO: parse M records
+    // while (it.peek() != null) {
+    //     if (it.peek().?[0] != 'M') {
+    //         break;
+    //     }
+    //     line_num += 1;
+    //     _ = it.next();
+    // }
 
     var code = Code{
         .header = header,
