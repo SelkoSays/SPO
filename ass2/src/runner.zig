@@ -28,7 +28,7 @@ const Runner = struct {
     n_instr: u32 = 0,
     mem_buf: []u8 = undefined,
     dev_buf: *Machine.OSDevices = undefined,
-    undo_buf: undo.UndoBuf = undefined,
+    undo_buf: *undo.UndoBuf = undefined,
 
     const Action = enum {
         Step,
@@ -43,13 +43,20 @@ var runner: Runner = .{};
 
 pub fn init(alloc: Allocator) !void {
     const buf = try alloc.alloc(u8, 1 << 21);
+    errdefer alloc.free(buf);
     runner.mem_buf = buf;
 
     const devs = try alloc.create(Machine.OSDevices);
+    errdefer alloc.destroy(devs);
     devs.* = Machine.OSDevices{};
     runner.dev_buf = devs;
 
-    runner.M = Machine.init(@ptrCast(buf), devs);
+    const u_buf = try alloc.create(undo.UndoBuf);
+    errdefer alloc.destroy(u_buf);
+    u_buf.* = try undo.UndoBuf.init(alloc, 50);
+    runner.undo_buf = u_buf;
+
+    runner.M = Machine.init(@ptrCast(buf), devs, u_buf, alloc);
     runner.M.devs.setDevice(0, .{ .file = std.io.getStdIn(), .closable = false });
     runner.M.devs.setDevice(1, .{ .file = std.io.getStdOut(), .closable = false });
     runner.M.devs.setDevice(2, .{ .file = std.io.getStdErr(), .closable = false });
@@ -57,8 +64,12 @@ pub fn init(alloc: Allocator) !void {
 
 pub fn deinit(alloc: Allocator) void {
     alloc.free(runner.mem_buf);
+
     runner.dev_buf.deinit();
     alloc.destroy(runner.dev_buf);
+
+    runner.undo_buf.deinit(alloc);
+    alloc.destroy(runner.undo_buf);
 }
 
 const RunAction = union(enum) {
@@ -97,10 +108,14 @@ pub fn parseArgs(alloc: Allocator) !RunAction {
 }
 
 pub fn run(alloc: Allocator, action: RunAction) !void {
+    var thread = try std.Thread.spawn(.{}, execute_machine, .{});
+
     try switch (action) {
         .Tui => runTui(alloc),
         else => {},
     };
+
+    thread.join();
 }
 
 fn runTui(alloc: Allocator) !void {
@@ -123,7 +138,10 @@ fn runTui(alloc: Allocator) !void {
 
         switch (args.action) {
             .Noop => {},
-            .Quit => break,
+            .Quit => {
+                runner.M.stopped = true;
+                break;
+            },
 
             // machine has to be stopped
             .Load, .Start, .Step, .Undo, .UndoSet, .RegPrint, .RegSet, .RegClear, .MemPrint, .MemSet, .MemClear, .WatchList, .Breakpoint => {
@@ -138,7 +156,7 @@ fn runTui(alloc: Allocator) !void {
                 switch (args.action) {
                     .Load => {
                         const v = args.get("file").?; // should have this key
-                        runner.M.load(v.Str, false, alloc) catch {
+                        runner.M.load(v.Str, false) catch {
                             std.log.err("Cannot load file.", .{});
                         };
                     },
@@ -159,21 +177,45 @@ fn runTui(alloc: Allocator) !void {
                                 };
                             }
                         }
+
+                        runner.m.lock();
+                        if (count) |c| {
+                            runner.n_instr = @truncate(c.Int);
+                            runner.action = .NStep;
+                        } else {
+                            runner.action = .Step;
+                        }
+                        runner.m.unlock();
+
+                        runner.c.signal();
                     },
-                    .Undo => {},
-                    .UndoSet => {},
-                    .RegPrint => {},
-                    .RegSet => {},
-                    .RegClear => {},
-                    .MemPrint => {},
-                    .MemSet => {},
-                    .MemClear => {},
-                    .WatchList => {},
-                    .Breakpoint => {},
+                    .Undo => {
+                        var n: usize = 1;
+                        if (args.get("count")) |c| {
+                            n = c.Int;
+                        }
+                        runner.M.undoN(n);
+                    },
+                    .UndoSet => {
+                        const size = args.get("val").?;
+                        runner.undo_buf.resize(size.Int, alloc) catch {
+                            std.log.err("Could not resize undo buffer", .{});
+                        };
+                    },
+                    // .RegPrint => {},
+                    // .RegSet => {},
+                    // .RegClear => {},
+                    // .MemPrint => {},
+                    // .MemSet => {},
+                    // .MemClear => {},
+                    // .WatchList => {},
+                    // .Breakpoint => {},
                     else => {},
                 }
             },
-            .Stop => {},
+            .Stop => {
+                runner.M.stopped = true;
+            },
             .Watch => {},
             .BreakpointList => {},
         }
@@ -189,7 +231,7 @@ fn execute_machine() void {
         }
 
         switch (runner.action) {
-            .Step => runner.M.step(),
+            .Step => runner.M.step() catch {},
             .NStep => runner.M.nStep(runner.n_instr),
             .Start => runner.M.start(),
             .Noop, .Wait => {},

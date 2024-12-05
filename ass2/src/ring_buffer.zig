@@ -31,6 +31,11 @@ pub fn ForgetfulRingBuffer(comptime T: type, comptime free_item: ?*const fn (*T,
             self.items = undefined;
         }
 
+        pub fn last(self: *Self) ?*T {
+            if (self.len == 0) return null;
+            return &self.items[(self.items.len + self.rightIdx - 1) % self.items.len];
+        }
+
         pub fn resize(self: *Self, size: usize, alloc: Allocator) !void {
             if (size == 0) return error.CannotResizeToZero;
 
@@ -51,7 +56,7 @@ pub fn ForgetfulRingBuffer(comptime T: type, comptime free_item: ?*const fn (*T,
                 }
             }
 
-            var len = 0;
+            var len: usize = 0;
             if (i > self.rightIdx) {
                 @memcpy(new_mem, self.items[i..]);
                 len = self.items.len - i;

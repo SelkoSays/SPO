@@ -52,6 +52,10 @@ const Regs = struct {
         pub fn asArray(self: *GPR) [*]u24 {
             return @ptrCast(self);
         }
+
+        pub fn asConstArray(self: *const GPR) [*]const u24 {
+            return @ptrCast(self);
+        }
     };
 
     const SR = packed union {
@@ -94,7 +98,7 @@ const Regs = struct {
     }
 
     /// Get register
-    pub fn get(self: *Self, ri: RegIdx, comptime T: type) T {
+    pub fn get(self: *const Self, ri: RegIdx, comptime T: type) T {
         if (T == f64) {
             if (ri != RegIdx.F) std.debug.panic("Cannot read register {} as a floating point number.", .{ri});
             return self.F;
@@ -106,7 +110,7 @@ const Regs = struct {
                 .F => @panic("Cannot read register F as a word."),
                 .SW => self.SW.i,
                 .PC => self.PC,
-                else => self.gpr.asArray()[ri.asInt()],
+                else => self.gpr.asConstArray()[ri.asInt()],
             };
         }
     }
@@ -200,6 +204,7 @@ pub const Machine = struct {
     stopped: bool = true,
     code: ?obj.Code = null,
     undo_buf: *undo.UndoBuf,
+    alloc: Allocator,
 
     pub const OSDevices = Devices(256);
 
@@ -212,11 +217,12 @@ pub const Machine = struct {
 
     const Self = @This();
 
-    pub fn init(buf: [*]u8, devs: *OSDevices, undo_buf: *undo.UndoBuf) Self {
+    pub fn init(buf: [*]u8, devs: *OSDevices, undo_buf: *undo.UndoBuf, alloc: Allocator) Self {
         return .{
             .mem = .{ .buf = buf },
             .devs = devs,
             .undo_buf = undo_buf,
+            .alloc = alloc,
         };
     }
 
@@ -330,9 +336,10 @@ pub const Machine = struct {
         return address_mode;
     }
 
-    pub fn load(self: *Self, path: []const u8, comptime is_str: bool, alloc: Allocator) !void {
+    pub fn load(self: *Self, path: []const u8, comptime is_str: bool) !void {
+        // TODO: clear undo buffer
         const r_code = try if (is_str) blk: {
-            break :blk obj.from_str(path, alloc);
+            break :blk obj.from_str(path, self.alloc);
         } else blk: {
             const cur_dir = std.fs.cwd();
             const f = cur_dir.openFile(path, .{ .mode = .read_only }) catch |err| {
@@ -341,7 +348,7 @@ pub const Machine = struct {
             };
             defer f.close();
 
-            break :blk obj.from_reader(f.reader().any(), alloc);
+            break :blk obj.from_reader(f.reader().any(), self.alloc);
         };
 
         if (r_code.is_err()) {
@@ -349,7 +356,7 @@ pub const Machine = struct {
         }
 
         const code = r_code.unwrap();
-        defer code.deinit(alloc);
+        defer code.deinit(self.alloc);
 
         for (code.records) |r| {
             switch (r) {
@@ -379,7 +386,9 @@ pub const Machine = struct {
         self.stopped = false;
         while (!self.stopped) {
             const t_start = std.time.microTimestamp();
-            self.step();
+            self.step() catch {
+                self.stopped = true;
+            };
             const elapsed = std.time.microTimestamp() - t_start;
             const t = (self.sleep_time() -| @as(u64, @intCast(elapsed)));
             std.time.sleep(t);
@@ -394,19 +403,80 @@ pub const Machine = struct {
         var nn = n;
         self.stopped = true;
         while (!self.stopped and nn > 0) {
-            self.step();
+            self.step() catch {
+                self.stopped = true;
+            };
             nn -= 1;
         }
     }
 
-    pub fn step(self: *Self) void {
+    fn saveReg(self: *const Self, reg: RegIdx) !void {
+        const states = self.undo_buf.last() orelse return;
+
+        if (reg == .F) {
+            try states.append(.{ .RegState = .{ .ri = reg, .val = .{ .f = self.regs.get(reg, f64) } } });
+        } else {
+            try states.append(.{ .RegState = .{ .ri = reg, .val = .{ .i = self.regs.get(reg, u24) } } });
+        }
+    }
+
+    fn saveMem(self: *Self, addr: u24, val: type) !void {
+        const states = self.undo_buf.last() orelse return;
+
+        if (val == u8) {
+            try states.append(.{ .MemByteState = .{ .addr = addr, .val = self.mem.get(addr, val) } });
+        } else if (val == u24) {
+            try states.append(.{ .MemWordState = .{ .addr = addr, .val = self.mem.get(addr, val) } });
+        } else if (val == f64) {
+            try states.append(.{ .MemFState = .{ .addr = addr, .val = self.mem.get(addr, val) } });
+        } else {
+            @compileError("Cannot save any other type rather than u8, u24, f64");
+        }
+    }
+
+    pub fn undoN(self: *Self, count: usize) void {
+        var i = count;
+        while ((self.undo_buf.len > 0) and (i > 0)) {
+            defer i -= 1;
+
+            const states = self.undo_buf.popBack().?;
+            defer states.deinit();
+
+            for (states.items) |state| {
+                switch (state) {
+                    .MemByteState => |m| {
+                        self.mem.set(m.addr, m.val);
+                    },
+                    .MemWordState => |m| {
+                        self.mem.set(m.addr, m.val);
+                    },
+                    .MemFState => |m| {
+                        self.mem.set(m.addr, m.val);
+                    },
+                    .RegState => |r| {
+                        if (r.ri == .F) {
+                            self.regs.set(r.ri, r.val.f);
+                        } else {
+                            self.regs.set(r.ri, r.val.i);
+                        }
+                    },
+                }
+            }
+        }
+    }
+
+    pub fn step(self: *Self) !void {
+        const states = std.ArrayList(undo.State).init(self.alloc);
+        self.undo_buf.add(states, null);
+        try self.saveReg(.PC);
+
         const opcode_ni = self.fetch();
         const opcode: Opcode = std.meta.intToEnum(Opcode, (opcode_ni >> 2) << 2) catch {
             self.stop();
             return;
         };
 
-        const sic = false;
+        var sic = false;
         const address_mode = addressMode(opcode_ni, &sic);
 
         var ins_sz = Is.opTable.get(opcode) orelse 0;
@@ -425,66 +495,112 @@ pub const Machine = struct {
 
         switch (opcode) {
             // load and store
-            .LDA => self.regs.gpr.A = operand,
-            .LDX => self.regs.gpr.X = operand,
-            .LDL => self.regs.gpr.L = operand,
+            .LDA => {
+                try self.saveReg(.A);
+                self.regs.gpr.A = operand;
+            },
+            .LDX => {
+                try self.saveReg(.X);
+                self.regs.gpr.X = operand;
+            },
+            .LDL => {
+                try self.saveReg(.L);
+                self.regs.gpr.L = operand;
+            },
             .STA => if (address_mode != .Immediate) {
+                try self.saveMem(operand, u24);
                 self.mem.set(
                     operand,
                     self.regs.gpr.A,
                 );
             },
             .STX => if (address_mode != .Immediate) {
+                try self.saveMem(operand, u24);
                 self.mem.set(
                     operand,
                     self.regs.gpr.X,
                 );
             },
             .STL => if (address_mode != .Immediate) {
+                try self.saveMem(operand, u24);
                 self.mem.set(
                     operand,
                     self.regs.gpr.L,
                 );
             },
             // fixed point arithmetic
-            .ADD => self.regs.gpr.A +%= operand,
-            .SUB => self.regs.gpr.A -%= operand,
-            .MUL => self.regs.gpr.A *%= operand,
-            .DIV => self.regs.gpr.A /= operand,
-            .COMP => self.regs.SW.s.cc = comp(self.regs.gpr.A, operand),
+            .ADD => {
+                try self.saveReg(.A);
+                self.regs.gpr.A +%= operand;
+            },
+            .SUB => {
+                try self.saveReg(.A);
+                self.regs.gpr.A -%= operand;
+            },
+            .MUL => {
+                try self.saveReg(.A);
+                self.regs.gpr.A *%= operand;
+            },
+            .DIV => {
+                try self.saveReg(.A);
+                self.regs.gpr.A /= operand;
+            },
+            .COMP => {
+                try self.saveReg(.SW);
+                self.regs.SW.s.cc = comp(self.regs.gpr.A, operand);
+            },
             .TIX => {
+                try self.saveReg(.X);
+                try self.saveReg(.SW);
                 self.regs.gpr.X +%= 1;
                 self.regs.SW.s.cc = comp(self.regs.gpr.X, operand);
             },
             // jumps
             .JEQ => if (self.regs.SW.s.cc == .Equal) {
+                try self.saveReg(.PC);
                 self.regs.PC = operand;
             },
             .JGT => if (self.regs.SW.s.cc == .Greater) {
+                try self.saveReg(.PC);
                 self.regs.PC = operand;
             },
             .JLT => if (self.regs.SW.s.cc == .Less) {
+                try self.saveReg(.PC);
                 self.regs.PC = operand;
             },
             .J => {
+                try self.saveReg(.PC);
                 if (self.regs.PC == (operand + ins_sz)) self.stop();
                 self.regs.PC = operand;
             },
             // bit manipulation
-            .AND => self.regs.gpr.A &= operand,
-            .OR => self.regs.gpr.A |= operand,
+            .AND => {
+                try self.saveReg(.A);
+                self.regs.gpr.A &= operand;
+            },
+            .OR => {
+                try self.saveReg(.A);
+                self.regs.gpr.A |= operand;
+            },
             // jump to subroutine
             .JSUB => {
+                try self.saveReg(.L);
+                try self.saveReg(.PC);
                 self.regs.gpr.L = self.regs.PC;
                 self.regs.PC = operand;
             },
-            .RSUB => self.regs.PC = self.regs.gpr.L,
+            .RSUB => {
+                try self.saveReg(.PC);
+                self.regs.PC = self.regs.gpr.L;
+            },
             // load and store byte
             .LDCH => {
+                try self.saveReg(.A);
                 self.regs.gpr.A &= ~@as(u24, 0xFF);
                 self.regs.gpr.A |= self.getAddr(u8, sic, false, address_mode);
             },
             .STCH => if (address_mode != .Immediate) {
+                try self.saveMem(operand, u8);
                 self.mem.set(
                     operand,
                     @as(u8, @truncate(self.regs.gpr.A & 0xFF)),
@@ -492,45 +608,69 @@ pub const Machine = struct {
             },
             // floating point arithmetic
             .ADDF => {
+                try self.saveReg(.F);
                 self.regs.F += self.getAddr(f64, sic, false, address_mode);
                 self.regs.F = hl.chopFloat(self.regs.F);
             },
             .SUBF => {
+                try self.saveReg(.F);
                 self.regs.F -= self.getAddr(f64, sic, false, address_mode);
                 self.regs.F = hl.chopFloat(self.regs.F);
             },
             .MULF => {
+                try self.saveReg(.F);
                 self.regs.F *= self.getAddr(f64, sic, false, address_mode);
                 self.regs.F = hl.chopFloat(self.regs.F);
             },
             .DIVF => {
+                try self.saveReg(.F);
                 self.regs.F /= self.getAddr(f64, sic, false, address_mode);
                 self.regs.F = hl.chopFloat(self.regs.F);
             },
             .COMPF => {
+                try self.saveReg(.F);
+                try self.saveReg(.SW);
                 const f = self.getAddr(f64, sic, false, address_mode);
                 self.regs.SW.s.cc = comp(self.regs.F, f);
             },
 
             // load and store
-            .LDB => self.regs.gpr.B = operand,
-            .LDS => self.regs.gpr.S = operand,
-            // .LDF => self.regs.F = self.getAddrF(instr, instr_size, sic, getFnF),
-            .LDT => self.regs.gpr.T = operand,
+            .LDB => {
+                try self.saveReg(.B);
+                self.regs.gpr.B = operand;
+            },
+            .LDS => {
+                try self.saveReg(.S);
+                self.regs.gpr.S = operand;
+            },
+            .LDF => {
+                try self.saveReg(.F);
+                self.regs.F = self.getAddr(f64, sic, false, address_mode);
+            },
+            .LDT => {
+                try self.saveReg(.T);
+                self.regs.gpr.T = operand;
+            },
             .STB => if (address_mode != .Immediate) {
+                try self.saveMem(operand, u24);
                 self.mem.set(
                     operand,
                     self.regs.gpr.B,
                 );
             },
             .STS => if (address_mode != .Immediate) {
+                try self.saveMem(operand, u24);
                 self.mem.set(
                     operand,
                     self.regs.gpr.S,
                 );
             },
-            .STF => self.mem.setF(operand, self.regs.F),
+            .STF => {
+                try self.saveMem(operand, f64);
+                self.mem.setF(operand, self.regs.F);
+            },
             .STT => if (address_mode != .Immediate) {
+                try self.saveMem(operand, u24);
                 self.mem.set(
                     operand,
                     self.regs.gpr.T,
@@ -540,6 +680,7 @@ pub const Machine = struct {
             // .LPS => {},
             // .STI => {},
             .STSW => if (address_mode != .Immediate) {
+                try self.saveMem(operand, u24);
                 self.mem.set(
                     operand,
                     self.regs.SW,
@@ -547,6 +688,7 @@ pub const Machine = struct {
             },
             // devices
             .RD => {
+                try self.saveReg(.A);
                 const dev_ = self.getAddr(u8, sic, false, address_mode);
                 self.regs.gpr.A = self.devs.getDevice(dev_).read();
             },
@@ -555,10 +697,13 @@ pub const Machine = struct {
                 self.devs.getDevice(dev_).write(@truncate(self.regs.gpr.A & 0xFF));
             },
             .TD => {
+                try self.saveReg(.SW);
                 const dev_ = self.getAddr(u8, sic, false, address_mode);
                 const t = self.devs.getDevice(dev_).@"test"();
                 if (!t) {
                     self.regs.SW.s.cc = .Greater;
+                } else {
+                    self.regs.SW.s.cc = .Equal; // ???
                 }
             },
             // system
@@ -566,53 +711,70 @@ pub const Machine = struct {
 
             // ***** SIC/XE Format 1 *****
             .FLOAT => {
+                try self.saveReg(.F);
                 self.regs.F = @floatFromInt(self.regs.gpr.A);
                 self.regs.F = hl.chopFloat(self.regs.F);
             },
-            .FIX => self.regs.gpr.A = @intFromFloat(self.regs.F),
+            .FIX => {
+                try self.saveReg(.A);
+                self.regs.gpr.A = @intFromFloat(self.regs.F);
+            },
             // .NORM => {}, ???
 
             // ***** SIC/XE Format 2 *****
             .ADDR => {
+                try self.saveReg(reg2(regs));
                 const r1 = self.regs.get(reg1(regs), u24);
                 const r2 = self.regs.get(reg2(regs), u24);
                 self.regs.set(reg2(regs), r2 +% r1);
             },
             .SUBR => {
+                try self.saveReg(reg2(regs));
                 const r1 = self.regs.get(reg1(regs), u24);
                 const r2 = self.regs.get(reg2(regs), u24);
                 self.regs.set(reg2(regs), r2 -% r1);
             },
             .MULR => {
+                try self.saveReg(reg2(regs));
                 const r1 = self.regs.get(reg1(regs), u24);
                 const r2 = self.regs.get(reg2(regs), u24);
                 self.regs.set(reg2(regs), r2 *% r1);
             },
             .DIVR => {
+                try self.saveReg(reg2(regs));
                 const r1 = self.regs.get(reg1(regs), u24);
                 const r2 = self.regs.get(reg2(regs), u24);
                 self.regs.set(reg2(regs), r2 / r1);
             },
             .COMPR => {
+                try self.saveReg(.SW);
                 const r1 = self.regs.get(reg1(regs), u24);
                 const r2 = self.regs.get(reg2(regs), u24);
                 self.regs.SW.s.cc = comp(r1, r2);
             },
             .SHIFTL => {
+                try self.saveReg(reg2(regs));
                 const r1 = self.regs.get(reg1(regs), u24);
                 self.regs.set(reg2(regs), r1 << @truncate(regs & 0xF));
             },
             .SHIFTR => {
+                try self.saveReg(reg2(regs));
                 const r1 = self.regs.get(reg1(regs), u24);
                 self.regs.set(reg2(regs), r1 >> @truncate(regs & 0xF));
             },
             .RMO => {
+                try self.saveReg(reg2(regs));
                 const r1 = self.regs.get(reg1(regs), u24);
                 self.regs.set(reg2(regs), r1);
             },
             // .SVC => {},
-            .CLEAR => self.regs.set(reg1(regs), @as(u24, 0)),
+            .CLEAR => {
+                try self.saveReg(reg1(regs));
+                self.regs.set(reg1(regs), @as(u24, 0));
+            },
             .TIXR => {
+                try self.saveReg(.X);
+                try self.saveReg(.SW);
                 self.regs.gpr.X +%= 1;
                 const r1 = self.regs.get(reg1(regs), u24);
                 self.regs.SW.s.cc = comp(self.regs.gpr.X, r1);
