@@ -9,7 +9,7 @@ pub const State = union(enum) {
     MultiState: []const State,
 
     pub fn deinit(self: *State, alloc: ?std.mem.Allocator) void {
-        switch (self) {
+        switch (self.*) {
             .MultiState => |s| if (alloc) |a| a.free(s),
             else => {},
         }

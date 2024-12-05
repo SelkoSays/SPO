@@ -189,8 +189,8 @@ pub fn from_str(str: []const u8, alloc: Allocator) !Result(Code) {
 pub fn from_reader(r: std.io.AnyReader, alloc: Allocator) !Result(Code) {
     var str = std.ArrayList(u8).init(alloc);
     defer str.deinit();
-    const w = str.writer();
-    try r.streamUntilDelimiter(w, 0, null);
+
+    try r.readAllArrayList(&str, std.math.maxInt(usize));
 
     return from_str(str.items, alloc);
 }

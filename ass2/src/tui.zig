@@ -6,6 +6,7 @@ const Actions = enum {
     Quit,
     Load,
     Start,
+    Stop,
     Step,
     Watch,
     WatchList,
@@ -24,11 +25,12 @@ const Actions = enum {
 // M - submenu, C - command
 // q, quit
 // start, run, r
+// stop
 // step  [count=]
 // load  file=
 // u, undo
-// |-- step  [count=]
-// \-- size  [val=]
+// |-- step     [count=]
+// \-- setsize  [val=]
 // mem
 // |-- set   addr= val= size=word|byte|number
 // |-- print addr= [count=]
@@ -170,7 +172,7 @@ const menu: Menu = Menu{
                     .help = "Undoes one instruction or at most 'count' instructions",
                 },
                 Cmd{
-                    .name = "size",
+                    .name = "setsize",
                     .params = &.{
                         Param{
                             .name = "val",
@@ -218,6 +220,11 @@ const menu: Menu = Menu{
             .help = "Run simulation",
         },
         Cmd{
+            .name = "stop",
+            .action = .Stop,
+            .help = "Stop simulation",
+        },
+        Cmd{
             .name = "step",
             .params = &.{Param{
                 .name = "count",
@@ -230,7 +237,7 @@ const menu: Menu = Menu{
         Cmd{
             .name = "load",
             .params = &.{Param{ .name = "file" }},
-            .action = .Step,
+            .action = .Load,
             .help = "Load 'file' into memory",
         },
     },
@@ -238,7 +245,7 @@ const menu: Menu = Menu{
 
 pub const Args = struct {
     action: Actions = .Noop,
-    args: std.StringArrayHashMap(Val) = undefined,
+    args: ?std.StringArrayHashMap(Val) = null,
 
     const Val = union(enum) {
         Str: []const u8,
@@ -255,15 +262,15 @@ pub const Args = struct {
     }
 
     pub fn keys(self: *const Self) [][]const u8 {
-        return self.args.keys();
+        return self.args.?.keys();
     }
 
     pub fn contains(self: *const Self, key: []const u8) bool {
-        return self.args.contains(key);
+        return self.args.?.contains(key);
     }
 
     pub fn get(self: *const Self, key: []const u8) ?Val {
-        return self.args.get(key);
+        return self.args.?.get(key);
     }
 
     pub fn parseAndAdd(self: *Self, key: []const u8, val: []const u8, shoudParse: bool) !void {
@@ -278,11 +285,12 @@ pub const Args = struct {
             }
         }
 
-        try self.args.put(key, v);
+        try self.args.?.put(key, v);
     }
 
     pub fn deinit(self: *Self) void {
-        self.args.deinit();
+        if (self.args == null) return;
+        self.args.?.deinit();
     }
 };
 
@@ -521,7 +529,7 @@ const Param = struct {
 
 fn printOut(w: std.io.AnyWriter, comptime format: []const u8, args: anytype) void {
     std.io.AnyWriter.print(w, format, args) catch {
-        std.debug.print("InternalError: Unable to write to standard output. Try again.\n", .{});
+        std.log.err("InternalError: Unable to write to standard output. Try again.", .{});
     };
 }
 

@@ -9,6 +9,7 @@ const Is = @import("instruction_set");
 const Opcode = Is.Opcode;
 const Fmt = Is.Fmt;
 const obj = @import("obj_reader.zig");
+const undo = @import("undo.zig");
 
 pub const RegIdx = enum(u4) {
     A = 0x0,
@@ -198,6 +199,7 @@ pub const Machine = struct {
     clock_speed: u64 = 1, // [kHz]
     stopped: bool = true,
     code: ?obj.Code = null,
+    undo_buf: *undo.UndoBuf,
 
     pub const OSDevices = Devices(256);
 
@@ -210,11 +212,122 @@ pub const Machine = struct {
 
     const Self = @This();
 
-    pub fn init(buf: [*]u8, devs: *OSDevices) Self {
+    pub fn init(buf: [*]u8, devs: *OSDevices, undo_buf: *undo.UndoBuf) Self {
         return .{
             .mem = .{ .buf = buf },
             .devs = devs,
+            .undo_buf = undo_buf,
         };
+    }
+
+    var instruction_str_buf = [_]u8{0} ** 70;
+    pub fn curInstrStr(self: *const Self) ?[]const u8 {
+        const bytes = self.mem.get(self.regs.PC, [4]u8);
+        const opcode_ni = bytes[0];
+        const opcode: Opcode = std.meta.intToEnum(Opcode, (opcode_ni >> 2) << 2) catch return null;
+
+        const xbpe_addr = bytes[1];
+        const x = (xbpe_addr & 0x80) >> 7;
+        const b = (xbpe_addr & 0x40) >> 6;
+        const p = (xbpe_addr & 0x20) >> 5;
+        const e = (xbpe_addr & 0x10) >> 4;
+
+        var sic = false;
+        const am = addressMode(opcode_ni, &sic);
+
+        var ins_sz = Is.opTable.get(opcode) orelse return null;
+        if (ins_sz > 2 and (e == 1)) {
+            ins_sz += 1;
+        }
+
+        var buf = std.fmt.bufPrint(&instruction_str_buf, "{X:0>6}  {X:0>2} {X:0>2} ", .{ self.regs.PC, opcode_ni, xbpe_addr }) catch return null;
+
+        @memset(instruction_str_buf[buf.len .. buf.len + 5], ' ');
+        if (ins_sz == 3) {
+            const bb = std.fmt.bufPrint(instruction_str_buf[buf.len..], "{X:0>2}    ", .{bytes[2]}) catch return null;
+            buf.len += bb.len;
+        } else if (ins_sz == 4) {
+            const bb = std.fmt.bufPrint(instruction_str_buf[buf.len..], "{X:0>2} {X:0>2} ", .{ bytes[2], bytes[3] }) catch return null;
+            buf.len += bb.len;
+        } else {
+            buf.len += 5;
+        }
+
+        var bb = std.fmt.bufPrint(instruction_str_buf[buf.len..], " {s}{s:<5}    ", .{
+            if (e > 0) "+" else "",
+            @tagName(opcode),
+        }) catch return null;
+        buf.len += bb.len;
+
+        if (ins_sz == 2) {
+            bb = std.fmt.bufPrint(instruction_str_buf[buf.len..], "{s}, {s}", .{
+                @tagName(reg1(bytes[2])),
+                @tagName(reg2(bytes[2])),
+            }) catch return null;
+            buf.len += bb.len;
+        } else if (sic) {
+            const addr = (@as(u15, bytes[1]) << 8) | bytes[2];
+            bb = std.fmt.bufPrint(instruction_str_buf[buf.len..], "{d}{s}", .{
+                addr,
+                if (x > 0) " + X" else "",
+            }) catch return null;
+            buf.len += bb.len;
+        } else if (ins_sz == 3) {
+            const addr: i12 = @bitCast((@as(u12, xbpe_addr & 0xF) << 8) | bytes[2]);
+            addrStr(addr, &buf, x, b, p, am) orelse return null;
+        } else if (ins_sz == 4) {
+            const addr: i20 = @bitCast(((@as(u20, xbpe_addr & 0xF) << 16) | (@as(u20, bytes[2]) << 8)) | bytes[3]);
+            addrStr(addr, &buf, x, b, p, am) orelse return null;
+        }
+
+        return buf;
+    }
+
+    fn addrStr(addr: anytype, buf: *[]u8, x: u8, b: u8, p: u8, am: AddrMode) ?void {
+        switch (am) {
+            .Immediate => {
+                const bb = std.fmt.bufPrint(instruction_str_buf[buf.len..], "#{d}{s}{s}", .{
+                    addr,
+                    if (p > 0) " + PC" else "",
+                    if (b > 0) " + B" else "",
+                }) catch return null;
+                buf.len += bb.len;
+            },
+            .Normal => {
+                const bb = std.fmt.bufPrint(instruction_str_buf[buf.len..], "{d}{s}{s}{s}", .{
+                    addr,
+                    if (x > 0) " + X" else "",
+                    if (p > 0) " + PC" else "",
+                    if (b > 0) " + B" else "",
+                }) catch return null;
+                buf.len += bb.len;
+            },
+            .Indirect => {
+                const bb = std.fmt.bufPrint(instruction_str_buf[buf.len..], "@[{d}{s}{s}]", .{
+                    addr,
+                    if (p > 0) " + PC" else "",
+                    if (b > 0) " + B" else "",
+                }) catch return null;
+                buf.len += bb.len;
+            },
+            else => return null,
+        }
+    }
+
+    fn addressMode(byte: u8, sic: *bool) AddrMode {
+        var address_mode = AddrMode.Normal;
+        const n = (byte & 0b10) > 0;
+        const i = (byte & 0b01) > 0;
+
+        if (!n and i) {
+            address_mode = .Immediate;
+        } else if (n and !i) {
+            address_mode = .Indirect;
+        }
+
+        sic.* = !n and !i;
+
+        return address_mode;
     }
 
     pub fn load(self: *Self, path: []const u8, comptime is_str: bool, alloc: Allocator) !void {
@@ -223,12 +336,12 @@ pub const Machine = struct {
         } else blk: {
             const cur_dir = std.fs.cwd();
             const f = cur_dir.openFile(path, .{ .mode = .read_only }) catch |err| {
-                std.log.err("{}", .{err});
+                std.log.err("Cannot open file because: {}", .{err});
                 return;
             };
             defer f.close();
 
-            break :blk try obj.from_reader(f.reader().any(), alloc);
+            break :blk obj.from_reader(f.reader().any(), alloc);
         };
 
         if (r_code.is_err()) {
@@ -254,7 +367,7 @@ pub const Machine = struct {
     pub fn setSpeed(self: *Self, speed_kHz: u64) void {
         self.clock_speed = speed_kHz;
         if (speed_kHz == 0) {
-            self.clock_speed += 1;
+            self.clock_speed = 1;
         }
     }
 
@@ -293,17 +406,8 @@ pub const Machine = struct {
             return;
         };
 
-        var address_mode = AddrMode.Normal;
-        const n = (opcode_ni & 0b10) > 0;
-        const i = (opcode_ni & 0b01) > 0;
-
-        if (!n and i) {
-            address_mode = .Immediate;
-        } else if (n and !i) {
-            address_mode = .Indirect;
-        }
-
-        const sic = !n and !i;
+        const sic = false;
+        const address_mode = addressMode(opcode_ni, &sic);
 
         var ins_sz = Is.opTable.get(opcode) orelse 0;
         if (ins_sz > 2) {

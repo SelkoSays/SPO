@@ -20,8 +20,48 @@ pub fn ForgetfulRingBuffer(comptime T: type, comptime free_item: ?*const fn (*T,
         }
 
         pub fn deinit(self: *Self, alloc: Allocator) void {
+            if (free_item != null) {
+                var i = self.leftIdx;
+                while (i != self.rightIdx) {
+                    defer i = (i + 1) % self.items.len;
+                    free_item.?(&self.items[i], alloc);
+                }
+            }
             alloc.free(self.items);
             self.items = undefined;
+        }
+
+        pub fn resize(self: *Self, size: usize, alloc: Allocator) !void {
+            if (size == 0) return error.CannotResizeToZero;
+
+            var new_mem = try alloc.alloc(T, size);
+
+            var i: usize = self.leftIdx;
+
+            if (size < self.len) {
+                i = (self.leftIdx + (self.len - size)) % self.items.len;
+
+                if (free_item != null) {
+                    var j = self.leftIdx;
+                    while (j != i) {
+                        defer j = (j + 1) % self.items.len;
+
+                        free_item.?(&self.items[j], alloc);
+                    }
+                }
+            }
+
+            var len = 0;
+            if (i > self.rightIdx) {
+                @memcpy(new_mem, self.items[i..]);
+                len = self.items.len - i;
+                i = 0;
+            }
+
+            @memcpy(new_mem[len..], self.items[i..self.rightIdx]);
+
+            alloc.free(self.items);
+            self.items = new_mem;
         }
 
         pub fn add(self: *Self, item: T, alloc: ?Allocator) void {
