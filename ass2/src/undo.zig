@@ -10,8 +10,8 @@ pub const State = union(enum) {
     RegState: struct { ri: RegIdx, val: packed union { i: u24, f: f64 } },
 };
 
-fn deinitStates(a: *std.ArrayList(State), _: ?std.mem.Allocator) void {
-    a.deinit();
+fn deinitStates(a: *std.ArrayListUnmanaged(State), alloc: ?std.mem.Allocator) void {
+    a.deinit(alloc.?);
 }
 
-pub const UndoBuf = ring_buffer.ForgetfulRingBuffer(std.ArrayList(State), deinitStates);
+pub const UndoBuf = ring_buffer.ForgetfulRingBuffer(std.ArrayListUnmanaged(State), deinitStates);

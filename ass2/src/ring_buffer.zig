@@ -13,7 +13,7 @@ pub fn ForgetfulRingBuffer(comptime T: type, comptime free_item: ?*const fn (*T,
         pub fn init(alloc: Allocator, capacity: usize) !Self {
             return Self{
                 .items = try alloc.alloc(T, capacity),
-                .leftIdx = capacity,
+                .leftIdx = 0,
                 .rightIdx = 0,
                 .len = 0,
             };
@@ -67,10 +67,17 @@ pub fn ForgetfulRingBuffer(comptime T: type, comptime free_item: ?*const fn (*T,
 
             alloc.free(self.items);
             self.items = new_mem;
+
+            self.leftIdx = 0;
+            if (size < self.len) {
+                self.rightIdx = size;
+            } else {
+                self.rightIdx = self.len;
+            }
         }
 
         pub fn add(self: *Self, item: T, alloc: ?Allocator) void {
-            if (self.rightIdx == self.leftIdx) {
+            if (self.len == self.items.len) {
                 if (free_item) |free| {
                     free(&self.items[self.leftIdx], alloc);
                 }
@@ -88,16 +95,17 @@ pub fn ForgetfulRingBuffer(comptime T: type, comptime free_item: ?*const fn (*T,
 
             const item = self.items[self.leftIdx];
             self.leftIdx = (self.leftIdx + 1) % self.items.len;
+            self.len -= 1;
             return item;
         }
 
         pub fn popBack(self: *Self) ?T {
             if (self.len == 0) return null;
 
-            const item = self.items[self.rightIdx];
-
             self.rightIdx = (self.rightIdx + self.items.len - 1) % self.items.len;
 
+            const item = self.items[self.rightIdx];
+            self.len -= 1;
             return item;
         }
 

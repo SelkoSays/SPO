@@ -414,9 +414,9 @@ pub const Machine = struct {
         const states = self.undo_buf.last() orelse return;
 
         if (reg == .F) {
-            try states.append(.{ .RegState = .{ .ri = reg, .val = .{ .f = self.regs.get(reg, f64) } } });
+            try states.append(self.alloc, .{ .RegState = .{ .ri = reg, .val = .{ .f = self.regs.get(reg, f64) } } });
         } else {
-            try states.append(.{ .RegState = .{ .ri = reg, .val = .{ .i = self.regs.get(reg, u24) } } });
+            try states.append(self.alloc, .{ .RegState = .{ .ri = reg, .val = .{ .i = self.regs.get(reg, u24) } } });
         }
     }
 
@@ -424,11 +424,11 @@ pub const Machine = struct {
         const states = self.undo_buf.last() orelse return;
 
         if (val == u8) {
-            try states.append(.{ .MemByteState = .{ .addr = addr, .val = self.mem.get(addr, val) } });
+            try states.append(self.alloc, .{ .MemByteState = .{ .addr = addr, .val = self.mem.get(addr, val) } });
         } else if (val == u24) {
-            try states.append(.{ .MemWordState = .{ .addr = addr, .val = self.mem.get(addr, val) } });
+            try states.append(self.alloc, .{ .MemWordState = .{ .addr = addr, .val = self.mem.get(addr, val) } });
         } else if (val == f64) {
-            try states.append(.{ .MemFState = .{ .addr = addr, .val = self.mem.get(addr, val) } });
+            try states.append(self.alloc, .{ .MemFState = .{ .addr = addr, .val = self.mem.get(addr, val) } });
         } else {
             @compileError("Cannot save any other type rather than u8, u24, f64");
         }
@@ -439,8 +439,8 @@ pub const Machine = struct {
         while ((self.undo_buf.len > 0) and (i > 0)) {
             defer i -= 1;
 
-            const states = self.undo_buf.popBack().?;
-            defer states.deinit();
+            var states = self.undo_buf.popBack().?;
+            defer states.deinit(self.alloc);
 
             for (states.items) |state| {
                 switch (state) {
@@ -466,8 +466,8 @@ pub const Machine = struct {
     }
 
     pub fn step(self: *Self) !void {
-        const states = std.ArrayList(undo.State).init(self.alloc);
-        self.undo_buf.add(states, null);
+        const states = try std.ArrayListUnmanaged(undo.State).initCapacity(self.alloc, 2);
+        self.undo_buf.add(states, self.alloc);
         try self.saveReg(.PC);
 
         const opcode_ni = self.fetch();
@@ -557,19 +557,15 @@ pub const Machine = struct {
             },
             // jumps
             .JEQ => if (self.regs.SW.s.cc == .Equal) {
-                try self.saveReg(.PC);
                 self.regs.PC = operand;
             },
             .JGT => if (self.regs.SW.s.cc == .Greater) {
-                try self.saveReg(.PC);
                 self.regs.PC = operand;
             },
             .JLT => if (self.regs.SW.s.cc == .Less) {
-                try self.saveReg(.PC);
                 self.regs.PC = operand;
             },
             .J => {
-                try self.saveReg(.PC);
                 if (self.regs.PC == (operand + ins_sz)) self.stop();
                 self.regs.PC = operand;
             },
@@ -585,12 +581,10 @@ pub const Machine = struct {
             // jump to subroutine
             .JSUB => {
                 try self.saveReg(.L);
-                try self.saveReg(.PC);
                 self.regs.gpr.L = self.regs.PC;
                 self.regs.PC = operand;
             },
             .RSUB => {
-                try self.saveReg(.PC);
                 self.regs.PC = self.regs.gpr.L;
             },
             // load and store byte

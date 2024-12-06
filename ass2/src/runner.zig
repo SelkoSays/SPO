@@ -140,6 +140,12 @@ fn runTui(alloc: Allocator) !void {
             .Noop => {},
             .Quit => {
                 runner.M.stopped = true;
+                runner.end = true;
+                if (runner.m.tryLock()) { // if thread waits
+                    runner.action = .Noop;
+                    runner.c.signal();
+                    runner.m.unlock();
+                }
                 break;
             },
 
