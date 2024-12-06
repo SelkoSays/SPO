@@ -14,6 +14,7 @@ const Actions = enum {
     UndoSet,
     Breakpoint,
     BreakpointList,
+    Speed,
     RegPrint,
     RegSet,
     RegClear,
@@ -30,7 +31,7 @@ const Actions = enum {
 // load  file=
 // u, undo
 // |-- step     [count=]
-// \-- setsize  [val=]
+// \-- size  [val=]
 // mem
 // |-- set   addr= val= size=word|byte|number
 // |-- print addr= [count=]
@@ -38,6 +39,7 @@ const Actions = enum {
 // cpu
 // |-- print [reg=]
 // |-- set   reg= val=
+// |-- speed [val=]
 // \-- clear, clr
 // b, breakpoint
 // |-- set   addr=
@@ -91,7 +93,7 @@ const menu: Menu = Menu{
                 Cmd{
                     .name = "clear",
                     .alt = &.{"clr"},
-                    .action = .RegClear,
+                    .action = .MemClear,
                     .help = "Clear all memory",
                 },
             },
@@ -105,6 +107,7 @@ const menu: Menu = Menu{
                     .params = &.{
                         Param{
                             .name = "reg",
+                            .limited = &.{ "A", "X", "L", "B", "S", "T", "F", "PC", "SW" },
                             .optional = true,
                         },
                     },
@@ -116,6 +119,7 @@ const menu: Menu = Menu{
                     .params = &.{
                         Param{
                             .name = "reg",
+                            .limited = &.{ "A", "X", "L", "B", "S", "T", "F", "PC", "SW" },
                         },
                         Param{
                             .name = "val",
@@ -124,6 +128,16 @@ const menu: Menu = Menu{
                     },
                     .action = .RegSet,
                     .help = "Set register 'reg' with value 'val'",
+                },
+                Cmd{
+                    .name = "speed",
+                    .params = &.{Param{
+                        .name = "val",
+                        .optional = true,
+                        .canBeNum = true,
+                    }},
+                    .action = .Speed,
+                    .help = "Print current speed or set speed to 'val' kHz",
                 },
                 Cmd{
                     .name = "clear",
@@ -172,7 +186,7 @@ const menu: Menu = Menu{
                     .help = "Undoes one instruction or at most 'count' instructions",
                 },
                 Cmd{
-                    .name = "setsize",
+                    .name = "size",
                     .params = &.{
                         Param{
                             .name = "val",
@@ -247,7 +261,7 @@ pub const Args = struct {
     action: Actions = .Noop,
     args: ?std.StringArrayHashMap(Val) = null,
 
-    const Val = union(enum) {
+    pub const Val = union(enum) {
         Str: []const u8,
         Int: u64,
         Flt: f64,

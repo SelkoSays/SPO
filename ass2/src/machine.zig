@@ -194,6 +194,23 @@ const Mem = struct {
     pub fn getF(self: *const Self, addr: u24) f64 {
         return @bitCast(@as(u64, self.get(addr, u48)) << (@bitSizeOf(u64) - @bitSizeOf(u48)));
     }
+
+    pub fn print(self: *const Self, w: std.io.AnyWriter, addr: u24, size: u24) !void {
+        var i: u24 = 0;
+
+        try w.print("{X:0>6}", .{addr});
+        while ((i < size) and (addr + i) < MAX_ADDR) {
+            defer i += 1;
+
+            try w.print(" {X:0>2}", .{self.buf[addr + i]});
+            const last_in_line = (((i + 1) % 16) == 0);
+
+            if (last_in_line and (i < (size - 1))) {
+                try w.print("\n{X:0>6}", .{addr + i + 1});
+            }
+        }
+        _ = try w.write("\n");
+    }
 };
 
 pub const Machine = struct {

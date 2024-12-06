@@ -43,6 +43,7 @@ var runner: Runner = .{};
 
 pub fn init(alloc: Allocator) !void {
     const buf = try alloc.alloc(u8, 1 << 21);
+    @memset(buf, 0);
     errdefer alloc.free(buf);
     runner.mem_buf = buf;
 
@@ -120,7 +121,7 @@ pub fn run(alloc: Allocator, action: RunAction) !void {
 
 fn runTui(alloc: Allocator) !void {
     const out = std.io.getStdOut();
-    const w = out.writer();
+    const w = out.writer().any();
 
     const prompt = "sic> ";
 
@@ -133,7 +134,9 @@ fn runTui(alloc: Allocator) !void {
         }
 
         const l = std.mem.sliceTo(line, 0);
-        var args = tui.parseArgs(l, alloc) catch tui.Args{};
+        const sync = l[0] == '.';
+
+        var args = tui.parseArgs(if (sync) l[1..] else l, alloc) catch tui.Args{};
         defer args.deinit();
 
         switch (args.action) {
@@ -150,11 +153,9 @@ fn runTui(alloc: Allocator) !void {
             },
 
             // machine has to be stopped
-            .Load, .Start, .Step, .Undo, .UndoSet, .RegPrint, .RegSet, .RegClear, .MemPrint, .MemSet, .MemClear, .WatchList, .Breakpoint => {
+            .Load, .Start, .Step, .Undo, .UndoSet, .Speed, .RegPrint, .RegSet, .RegClear, .MemPrint, .MemSet, .MemClear, .WatchList, .Breakpoint => {
                 if (!runner.m.tryLock()) {
-                    w.writeAll("Cannot execute this action, while the machine is running.\n") catch {
-                        std.log.err("InternalError: Cannot write to stdout.", .{});
-                    };
+                    printOut(w, "Cannot execute this action, while the machine is running.\n", .{});
                     continue;
                 }
                 runner.m.unlock();
@@ -167,33 +168,43 @@ fn runTui(alloc: Allocator) !void {
                         };
                     },
                     .Start => {
-                        runner.m.lock();
-                        runner.action = .Start;
-                        runner.m.unlock();
+                        if (!sync) {
+                            runner.m.lock();
+                            runner.action = .Start;
+                            runner.m.unlock();
 
-                        runner.c.signal();
+                            runner.c.signal();
+                        } else {
+                            runner.M.start();
+                        }
                     },
                     .Step => {
                         const count = args.get("count");
                         if (count == null) {
                             const str = runner.M.curInstrStr();
                             if (str) |s| {
-                                w.print("{s}\n", .{s}) catch {
-                                    std.log.err("InternalError: Cannot write to stdout.", .{});
-                                };
+                                printOut(w, "{s}\n", .{s});
                             }
                         }
 
-                        runner.m.lock();
-                        if (count) |c| {
-                            runner.n_instr = @truncate(c.Int);
-                            runner.action = .NStep;
-                        } else {
-                            runner.action = .Step;
-                        }
-                        runner.m.unlock();
+                        if (!sync) {
+                            runner.m.lock();
+                            if (count) |c| {
+                                runner.n_instr = @truncate(c.Int);
+                                runner.action = .NStep;
+                            } else {
+                                runner.action = .Step;
+                            }
+                            runner.m.unlock();
 
-                        runner.c.signal();
+                            runner.c.signal();
+                        } else {
+                            if (count) |c| {
+                                runner.M.nStep(@truncate(c.Int));
+                            } else {
+                                runner.M.step() catch {};
+                            }
+                        }
                     },
                     .Undo => {
                         var n: usize = 1;
@@ -208,8 +219,39 @@ fn runTui(alloc: Allocator) !void {
                             std.log.err("Could not resize undo buffer", .{});
                         };
                     },
-                    // .RegPrint => {},
-                    // .RegSet => {},
+                    .RegPrint => {
+                        const reg_name = args.get("reg").?.Str;
+                        const ri = std.meta.stringToEnum(mach.RegIdx, reg_name).?;
+                        printOut(w, "REGISTER   HEX          UNSIGNED    SIGNED      SPECIAL\n", .{});
+                        switch (ri) {
+                            .F => {
+                                const val = runner.M.regs.get(ri, f64);
+                                printOut(w, "{s:<10} {s:<12} {s:<11} {s:<11} {d}\n", .{ reg_name, "", "", "", val });
+                            },
+                            else => {
+                                const val = runner.M.regs.get(ri, u24);
+                                printOut(w, "{s:<10} {X:0<6}       {d:<11} {d}\n", .{ reg_name, val, val, @as(i24, @bitCast(val)) });
+                            },
+                        }
+                    },
+                    .Speed => {
+                        const val = args.get("val");
+                        if (val == null) {
+                            printOut(w, "Simulation speed: {d} kHz\n", .{runner.M.clock_speed});
+                        } else {
+                            runner.M.setSpeed(val.?.Int);
+                        }
+                    },
+                    .RegSet => {
+                        const reg = args.get("reg").?;
+                        const val = args.get("val").?;
+                        const ri = std.meta.stringToEnum(mach.RegIdx, reg.Str).?;
+                        if (ri == .F) {
+                            runner.M.regs.set(ri, val.Flt);
+                        } else {
+                            runner.M.regs.set(ri, @as(u24, @truncate(val.Int)));
+                        }
+                    },
                     .RegClear => {
                         var regs = &runner.M.regs;
                         regs.F = 0.0;
@@ -217,7 +259,14 @@ fn runTui(alloc: Allocator) !void {
                         regs.SW.i = 0;
                         @memset(regs.gpr.asArray()[0..6], 0);
                     },
-                    // .MemPrint => {},
+                    .MemPrint => {
+                        const addr = args.get("addr").?;
+                        const count = args.get("count") orelse tui.Args.Val{ .Int = 1 };
+
+                        runner.M.mem.print(w, @truncate(addr.Int), @truncate(count.Int)) catch {
+                            std.log.err("InternalError: Unable to write to standard output.", .{});
+                        };
+                    },
                     // .MemSet => {},
                     .MemClear => {
                         @memset(runner.mem_buf, 0);
@@ -253,4 +302,10 @@ fn execute_machine() void {
 
         runner.action = .Wait;
     }
+}
+
+fn printOut(w: std.io.AnyWriter, comptime format: []const u8, args: anytype) void {
+    std.io.AnyWriter.print(w, format, args) catch {
+        std.log.err("InternalError: Unable to write to standard output.", .{});
+    };
 }
