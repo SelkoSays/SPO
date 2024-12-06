@@ -204,10 +204,18 @@ fn runTui(alloc: Allocator) !void {
                     },
                     // .RegPrint => {},
                     // .RegSet => {},
-                    // .RegClear => {},
+                    .RegClear => {
+                        var regs = &runner.M.regs;
+                        regs.F = 0.0;
+                        regs.PC = 0;
+                        regs.SW.i = 0;
+                        @memset(regs.gpr.asArray()[0..6], 0);
+                    },
                     // .MemPrint => {},
                     // .MemSet => {},
-                    // .MemClear => {},
+                    .MemClear => {
+                        @memset(runner.mem_buf, 0);
+                    },
                     // .WatchList => {},
                     // .Breakpoint => {},
                     else => {},
