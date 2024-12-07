@@ -1,0 +1,47 @@
+00000            ARITH   START   0    
+00000  000007    x       WORD    7    
+00003  000004    y       WORD    4    
+00006  48....64  str     BYTE    C'Hello World'    
+00011  000000    sum     RESW    1    
+00014  000000    diff    RESW    1    
+00017  000000    prod    RESW    1    
+0001A  000000    quot    RESW    1    
+0001D  000000    mod     RESW    1    
+                  
+00020  4B200F    PROG    JSUB    SUMXY    
+00023  4B2018            JSUB    DIFFXY    
+00026  4B2021            JSUB    PRODXY    
+00029  4B202A            JSUB    QUOTXY    
+0002C  4B2033            JSUB    MODXY    
+0002F  3F2FFD    halt    J       halt    
+                  
+00032  032FCB    SUMXY   LDA     x    
+00035  1B2FCB            ADD     y    
+00038  0F2FD6            STA     sum    
+0003B  4F0000            RSUB        
+                  
+0003E  032FBF    DIFFXY  LDA     x    
+00041  1F2FBF            SUB     y    
+00044  0F2FCD            STA     diff    
+00047  4F0000            RSUB        
+                  
+0004A  032FB3    PRODXY  LDA     x    
+0004D  232FB3            MUL     y    
+00050  0F2FC4            STA     prod    
+00053  4F0000            RSUB        
+                  
+00056  032FA7    QUOTXY  LDA     x    
+00059  272FA7            DIV     y    
+0005C  0F2FBB            STA     quot    
+0005F  4F0000            RSUB        
+                  
+00062  032F9B    MODXY   LDA     x    
+00065  272F9B            DIV     y    
+00068  232F98            MUL     y    
+0006B  0F2FAF            STA     mod    
+0006E  032F8F            LDA     x    
+00071  1F2FA9            SUB     mod    
+00074  0F2FA6            STA     mod    
+00077  4F0000            RSUB        
+                  
+0007A                    END     PROG    
