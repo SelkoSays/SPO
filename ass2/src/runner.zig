@@ -123,6 +123,8 @@ fn runTui(alloc: Allocator) !void {
     const out = std.io.getStdOut();
     const w = out.writer().any();
 
+    _ = try w.write("Any command ran like '.cmd' or '.menu cmd' ... is executed in 'sync' mode.\nIf you want to run a program that requires standard input acces, you should run it in 'sync' mode, otherwise it might not work.\n");
+
     const prompt = "sic> ";
 
     while (true) {
@@ -155,7 +157,21 @@ fn runTui(alloc: Allocator) !void {
             },
 
             // machine has to be stopped
-            .Load, .Start, .Step, .Undo, .UndoSet, .Speed, .RegPrint, .RegSet, .RegClear, .MemPrint, .MemSet, .MemClear, .WatchList, .Breakpoint => {
+            .Load,
+            .Start,
+            .Step,
+            .Undo,
+            .UndoSet,
+            .Speed,
+            .RegPrint,
+            .RegSet,
+            .RegClear,
+            .MemPrint,
+            .MemClear,
+            .WatchList,
+            .Breakpoint,
+            // .MemSet
+            => {
                 if (!runner.m.tryLock()) {
                     printOut(w, "Cannot execute this action, while the machine is running.\n", .{});
                     continue;
@@ -222,18 +238,16 @@ fn runTui(alloc: Allocator) !void {
                         };
                     },
                     .RegPrint => {
-                        const reg_name = args.get("reg").?.Str;
-                        const ri = std.meta.stringToEnum(mach.RegIdx, reg_name).?;
+                        const o_reg_name = args.get("reg");
                         printOut(w, "REGISTER   HEX          UNSIGNED    SIGNED      SPECIAL\n", .{});
-                        switch (ri) {
-                            .F => {
-                                const val = runner.M.regs.get(ri, f64);
-                                printOut(w, "{s:<10} {s:<12} {s:<11} {s:<11} {d}\n", .{ reg_name, "", "", "", val });
-                            },
-                            else => {
-                                const val = runner.M.regs.get(ri, u24);
-                                printOut(w, "{s:<10} {X:0<6}       {d:<11} {d}\n", .{ reg_name, val, val, @as(i24, @bitCast(val)) });
-                            },
+
+                        if (o_reg_name) |reg_name| {
+                            const ri = std.meta.stringToEnum(mach.RegIdx, reg_name.Str).?;
+                            printReg(w, ri, reg_name.Str);
+                        } else {
+                            inline for (@typeInfo(mach.RegIdx).Enum.fields) |f| {
+                                printReg(w, @field(mach.RegIdx, f.name), f.name);
+                            }
                         }
                     },
                     .Speed => {
@@ -269,7 +283,7 @@ fn runTui(alloc: Allocator) !void {
                             std.log.err("InternalError: Unable to write to standard output.", .{});
                         };
                     },
-                    // .MemSet => {},
+                    // .MemSet => {},  NOT USED
                     .MemClear => {
                         @memset(runner.mem_buf, 0);
                     },
@@ -307,7 +321,26 @@ fn execute_machine() void {
 }
 
 fn printOut(w: std.io.AnyWriter, comptime format: []const u8, args: anytype) void {
-    std.io.AnyWriter.print(w, format, args) catch {
+    w.print(format, args) catch {
         std.log.err("InternalError: Unable to write to standard output.", .{});
     };
+}
+
+fn printReg(w: std.io.AnyWriter, ri: mach.RegIdx, reg_name: []const u8) void {
+    switch (ri) {
+        .F => {
+            const val = runner.M.regs.get(ri, f64);
+            printOut(w, "{s:<10} {X:0>12} {s:<11} {s:<11} {d}\n", .{
+                reg_name,
+                @as(u48, @truncate(@as(u64, @bitCast(val)) >> 16)),
+                "",
+                "",
+                val,
+            });
+        },
+        else => {
+            const val = runner.M.regs.get(ri, u24);
+            printOut(w, "{s:<10} {X:0>6}       {d:<11} {d}\n", .{ reg_name, val, val, @as(i24, @bitCast(val)) });
+        },
+    }
 }

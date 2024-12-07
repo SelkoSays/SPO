@@ -18,7 +18,7 @@ const Actions = enum {
     RegPrint,
     RegSet,
     RegClear,
-    MemSet,
+    // MemSet,
     MemPrint,
     MemClear,
 };
@@ -33,7 +33,7 @@ const Actions = enum {
 // |-- step     [count=]
 // \-- size  [val=]
 // mem
-// |-- set   addr= val= size=word|byte|number
+// >> |-- set   addr= val= size=word|byte|number << NOT USED
 // |-- print addr= [count=]
 // \-- clear, clr
 // cpu
@@ -54,25 +54,25 @@ const menu: Menu = Menu{
         Menu{
             .name = "mem",
             .commands = &.{
-                Cmd{
-                    .name = "set",
-                    .params = &.{
-                        Param{
-                            .name = "addr",
-                            .canBeNum = true,
-                        },
-                        Param{
-                            .name = "val",
-                        },
-                        Param{
-                            .name = "size",
-                            .limited = &.{ "word", "byte" },
-                            .canBeNum = true,
-                        },
-                    },
-                    .action = .MemSet,
-                    .help = "Put value 'val' on address 'addr' in memory as size 'size'",
-                },
+                // Cmd{
+                //     .name = "set",
+                //     .params = &.{
+                //         Param{
+                //             .name = "addr",
+                //             .canBeNum = true,
+                //         },
+                //         Param{
+                //             .name = "val",
+                //         },
+                //         Param{
+                //             .name = "size",
+                //             .limited = &.{ "word", "byte" },
+                //             .canBeNum = true,
+                //         },
+                //     },
+                //     .action = .MemSet,
+                //     .help = "Put value 'val' on address 'addr' in memory as size 'size'",
+                // },
                 Cmd{
                     .name = "print",
                     .alt = &.{"p"},
@@ -88,7 +88,7 @@ const menu: Menu = Menu{
                         },
                     },
                     .action = .MemPrint,
-                    .help = "Print some memory at address 'addr', if 'count' provided, print 'count' bytes",
+                    .help = "Print some memory at address 'addr', if 'count' provided, print 'count' bytes. If ran in 'sync' mode, also prints characters",
                 },
                 Cmd{
                     .name = "clear",
@@ -291,7 +291,7 @@ pub const Args = struct {
         var v: Val = .{ .Str = val };
         if (shoudParse) {
             const int: ?u64 = std.fmt.parseUnsigned(u64, val, 0) catch null;
-            const flt: ?f64 = if (int != null) std.fmt.parseFloat(f64, val) catch null else null;
+            const flt: ?f64 = if (int == null) std.fmt.parseFloat(f64, val) catch null else null;
             if (int != null) {
                 v = .{ .Int = int.? };
             } else if (flt != null) {
