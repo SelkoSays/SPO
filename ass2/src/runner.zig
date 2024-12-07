@@ -129,6 +129,8 @@ fn runTui(alloc: Allocator) !void {
         const line: [*c]u8 = rl.readline(prompt);
         defer std.c.free(line);
 
+        rl.add_history(line);
+
         if (line == null) {
             continue;
         }
@@ -263,7 +265,7 @@ fn runTui(alloc: Allocator) !void {
                         const addr = args.get("addr").?;
                         const count = args.get("count") orelse tui.Args.Val{ .Int = 1 };
 
-                        runner.M.mem.print(w, @truncate(addr.Int), @truncate(count.Int)) catch {
+                        runner.M.mem.print(w, @truncate(addr.Int), @truncate(count.Int), sync) catch {
                             std.log.err("InternalError: Unable to write to standard output.", .{});
                         };
                     },

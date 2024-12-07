@@ -474,10 +474,12 @@ const Param = struct {
     limited: ?[]const []const u8 = null,
 
     pub fn checkValue(self: *const Param, val: []const u8) bool {
-        if (self.limited == null) return true; // no limitation
+        if ((self.limited == null) and !self.canBeNum) return true; // no limitation
 
-        for (self.limited.?) |v| {
-            if (std.mem.eql(u8, val, v)) return true;
+        if (self.limited != null) {
+            for (self.limited.?) |v| {
+                if (std.mem.eql(u8, val, v)) return true;
+            }
         }
 
         if (self.canBeNum) {
@@ -637,7 +639,7 @@ pub fn parseArgs(line: []const u8, alloc: Allocator) !Args {
                 return error.E;
             };
             defer alloc.free(s);
-            printOut(w, "Error: Value '{s}' is incorrect. Should be {s}.", .{ val.?, s });
+            printOut(w, "Error: Value '{s}' is incorrect. Should be {s}.\n", .{ val.?, s });
             return error.E;
         }
 
@@ -649,7 +651,7 @@ pub fn parseArgs(line: []const u8, alloc: Allocator) !Args {
 
     for (cmd.?.params) |*p| {
         if (!p.optional and !args.contains(p.name)) {
-            printOut(w, "Error: Command '{s}' requires parameter '{s}'.", .{ cmd.?.name, p.name });
+            printOut(w, "Error: Command '{s}' requires parameter '{s}'.\n", .{ cmd.?.name, p.name });
             return error.E;
         }
     }

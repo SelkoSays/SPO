@@ -195,21 +195,42 @@ const Mem = struct {
         return @bitCast(@as(u64, self.get(addr, u48)) << (@bitSizeOf(u64) - @bitSizeOf(u48)));
     }
 
-    pub fn print(self: *const Self, w: std.io.AnyWriter, addr: u24, size: u24) !void {
-        var i: u24 = 0;
-
-        try w.print("{X:0>6}", .{addr});
-        while ((i < size) and (addr + i) < MAX_ADDR) {
-            defer i += 1;
-
-            try w.print(" {X:0>2}", .{self.buf[addr + i]});
-            const last_in_line = (((i + 1) % 16) == 0);
-
-            if (last_in_line and (i < (size - 1))) {
-                try w.print("\n{X:0>6}", .{addr + i + 1});
+    fn writeChars(self: *const Self, w: std.io.AnyWriter, addr: u24, size: u24) !void {
+        try w.writeByte('|');
+        for (0..size) |j| {
+            const byte = self.buf[addr + j];
+            if (byte < 32 or byte >= 127) {
+                try w.writeByte('.');
+            } else {
+                try w.writeByte(self.buf[addr + j]);
             }
         }
-        _ = try w.write("\n");
+        try w.writeByte('|');
+    }
+
+    pub fn print(self: *const Self, w: std.io.AnyWriter, addr: u24, size: u24, includeChr: bool) !void {
+        var i: u24 = 1;
+
+        try w.print("{X:0>6}", .{addr});
+        while ((i <= size) and (addr + i - 1) < MAX_ADDR) {
+            defer i += 1;
+
+            try w.print(" {X:0>2}", .{self.buf[addr + i - 1]});
+            const last_in_line = ((i % 16) == 0);
+
+            if (last_in_line) {
+                if (includeChr) {
+                    try w.writeByte(' ');
+                    try self.writeChars(w, addr + (i -| 16), i - (i -| 16));
+                }
+
+                if ((i < size)) {
+                    try w.print("\n{X:0>6}", .{addr + i});
+                }
+            }
+        }
+
+        try w.writeByte('\n');
     }
 };
 
