@@ -267,8 +267,8 @@ const Opcode = enum(u16) {
     STT = 0x843,
 
     // special load and store
-    // LPS = 0xD03,
-    // STI = 0xD43,
+    LPS = 0xD03, // unhandeled
+    STI = 0xD43, // unhandeled
     STSW = 0xE83,
 
     // devices
@@ -277,7 +277,7 @@ const Opcode = enum(u16) {
     TD = 0xE03,
 
     // system
-    // SSK = 0xEC3,
+    SSK = 0xEC3, // unhandeled
 
     // ***** SIC/XE Format 2 *****
     ADDR = 0x902,
@@ -288,17 +288,20 @@ const Opcode = enum(u16) {
     SHIFTL = 0xA42,
     SHIFTR = 0xA82,
     RMO = 0xAC2,
-    // SVC = 0xB02,
+    SVC = 0xB02, // unhandeled
     CLEAR = 0xB42,
     TIXR = 0xB82,
 
     // // ***** SIC/XE Format 1 *****
     FLOAT = 0xC01,
     FIX = 0xC41,
-    NORM = 0xC81,
-    // SIO = 0xF01,
-    // HIO = 0xF41,
-    // TIO = 0xF81,
+    NORM = 0xC81, // unhandeled
+    SIO = 0xF01, // unhandeled
+    HIO = 0xF41, // unhandeled
+    TIO = 0xF81, // unhandeled
+
+    // MY DBG INT
+    INT = 0xE41, // TODO
 
     const Self = @This();
     pub fn genText(str: *std.ArrayList(u8)) !void {

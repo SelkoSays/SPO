@@ -116,6 +116,14 @@ pub fn run(alloc: Allocator, action: RunAction) !void {
         else => {},
     };
 
+    runner.M.stopped = true;
+    runner.end = true;
+    if (runner.m.tryLock()) { // if thread waits
+        runner.action = .Noop;
+        runner.c.signal();
+        runner.m.unlock();
+    }
+
     thread.join();
 }
 
@@ -146,13 +154,6 @@ fn runTui(alloc: Allocator) !void {
         switch (args.action) {
             .Noop => {},
             .Quit => {
-                runner.M.stopped = true;
-                runner.end = true;
-                if (runner.m.tryLock()) { // if thread waits
-                    runner.action = .Noop;
-                    runner.c.signal();
-                    runner.m.unlock();
-                }
                 break;
             },
 

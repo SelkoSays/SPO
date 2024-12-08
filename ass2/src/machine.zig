@@ -243,6 +243,7 @@ pub const Machine = struct {
     code: ?obj.Code = null,
     undo_buf: *undo.UndoBuf,
     alloc: Allocator,
+    in_dbg_mode: bool = false,
 
     pub const OSDevices = Devices(256);
 
@@ -816,7 +817,7 @@ pub const Machine = struct {
             // .SIO => {},
             // .TIO => {},
 
-            else => @panic("unhandeled instruction"),
+            else => std.log.info("unhandeled instruction", .{}),
         }
     }
 
