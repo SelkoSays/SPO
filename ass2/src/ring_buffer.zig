@@ -122,5 +122,17 @@ pub fn ForgetfulRingBuffer(comptime T: type, comptime free_item: ?*const fn (*T,
             const i = (self.leftIdx + idx) % self.items.len;
             return &self.items[i];
         }
+
+        pub fn clearAndFree(self: *Self, alloc: Allocator) void {
+            if (free_item) |fi| {
+                for (self.items) |*i| {
+                    fi(i, alloc);
+                }
+            }
+
+            self.leftIdx = 0;
+            self.rightIdx = 0;
+            self.len = 0;
+        }
     };
 }

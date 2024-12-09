@@ -19,6 +19,8 @@ const tui = @import("tui.zig");
 
 const undo = @import("undo.zig");
 
+const WatchList = std.AutoArrayHashMap(u24, u24); // K = address, V = size
+
 const Runner = struct {
     M: Machine = undefined,
     m: std.Thread.Mutex = .{},
@@ -29,6 +31,7 @@ const Runner = struct {
     mem_buf: []u8 = undefined,
     dev_buf: *Machine.OSDevices = undefined,
     undo_buf: *undo.UndoBuf = undefined,
+    watch_list: WatchList = undefined,
 
     const Action = enum {
         Step,
@@ -57,6 +60,10 @@ pub fn init(alloc: Allocator) !void {
     u_buf.* = try undo.UndoBuf.init(alloc, 50);
     runner.undo_buf = u_buf;
 
+    const w_list = WatchList.init(alloc);
+    errdefer w_list.deinit();
+    runner.watch_list = w_list;
+
     runner.M = Machine.init(@ptrCast(buf), devs, u_buf, alloc);
     runner.M.devs.setDevice(0, .{ .file = std.io.getStdIn(), .closable = false });
     runner.M.devs.setDevice(1, .{ .file = std.io.getStdOut(), .closable = false });
@@ -71,6 +78,8 @@ pub fn deinit(alloc: Allocator) void {
 
     runner.undo_buf.deinit(alloc);
     alloc.destroy(runner.undo_buf);
+
+    runner.watch_list.deinit();
 }
 
 const RunAction = union(enum) {
@@ -146,7 +155,7 @@ fn runTui(alloc: Allocator) !void {
         }
 
         const l = std.mem.sliceTo(line, 0);
-        const sync = l[0] == '.';
+        const sync = (l[0] == '.');
 
         var args = tui.parseArgs(if (sync) l[1..] else l, alloc) catch tui.Args{};
         defer args.deinit();
@@ -172,7 +181,6 @@ fn runTui(alloc: Allocator) !void {
             .RegClear,
             .MemPrint,
             .MemClear,
-            .WatchRemove,
             .WatchList,
             .Breakpoint,
             .BreakpointRemove,
@@ -190,6 +198,28 @@ fn runTui(alloc: Allocator) !void {
                         runner.M.load(v.Str, false) catch {
                             std.log.err("Cannot load file.", .{});
                         };
+                    },
+                    .Reload => {
+                        runner.undo_buf.clearAndFree(alloc);
+
+                        if (!sync) {
+                            // Clear registers and memory
+                            var regs = &runner.M.regs;
+                            regs.F = 0.0;
+                            regs.PC = 0;
+                            regs.SW.i = 0;
+                            @memset(regs.gpr.asArray()[0..6], 0);
+                            @memset(runner.mem_buf, 0);
+                        }
+
+                        const file = args.get("file");
+                        if (file) |f| {
+                            runner.M.load(f.Str, false) catch {
+                                std.log.err("Cannot load file.", .{});
+                            };
+                        } else {
+                            runner.M.reload() catch unreachable; // if machine has code, it should be valid
+                        }
                     },
                     .Start => {
                         if (!sync) {
@@ -258,6 +288,9 @@ fn runTui(alloc: Allocator) !void {
                             std.log.err("Could not resize undo buffer", .{});
                         };
                     },
+                    .UndoClear => {
+                        runner.undo_buf.clearAndFree(alloc);
+                    },
                     .RegPrint => {
                         const o_reg_name = args.get("reg");
                         printOut(w, "REGISTER   HEX          UNSIGNED    SIGNED      SPECIAL\n", .{});
@@ -304,12 +337,24 @@ fn runTui(alloc: Allocator) !void {
                             std.log.err("InternalError: Unable to write to standard output.", .{});
                         };
                     },
-                    // .MemSet => {},  NOT USED
                     .MemClear => {
                         @memset(runner.mem_buf, 0);
                     },
-                    // .WatchList => {},
-                    // .Breakpoint => {},
+                    .WatchList => {
+                        var it = runner.watch_list.iterator();
+                        if (it.len == 0) {
+                            printOut(w, "Nothing to watch\n", .{});
+                            continue;
+                        }
+                        var i: u24 = 0;
+                        while (it.next()) |e| {
+                            defer i += 1;
+                            printOut(w, "{d}:\n ", .{i});
+                            runner.M.mem.print(w, e.key_ptr.*, e.value_ptr.*, sync) catch {
+                                std.log.err("InternalError: Unable to write to standard output.", .{});
+                            };
+                        }
+                    },
                     else => {
                         std.log.err("Unhandled action '{s}'", .{@tagName(args.action)});
                     },
@@ -318,8 +363,39 @@ fn runTui(alloc: Allocator) !void {
             .Stop => {
                 runner.M.stopped = true;
             },
-            .Watch => {},
-            .BreakpointList => {},
+            .WatchSet => {
+                const addr = args.get("addr").?.Int;
+                const size_v = args.get("size").?;
+                const size: u64 = switch (size_v) {
+                    .Int => |i| i,
+                    .Str => |s| blk: {
+                        if (std.mem.eql(u8, s, "byte")) {
+                            break :blk 1;
+                        }
+                        break :blk 3;
+                    },
+                    else => {
+                        std.log.err("Argument size should not be a float.", .{});
+                        continue;
+                    },
+                };
+
+                runner.watch_list.put(@truncate(addr), @truncate(size)) catch {
+                    std.log.err("InternalError: Could not add to watch list.", .{});
+                };
+            },
+            .WatchRemove => {
+                const idx = args.get("idx");
+                if (idx) |i| {
+                    runner.watch_list.orderedRemoveAt(i.Int);
+                } else {
+                    runner.watch_list.clearAndFree();
+                }
+            },
+            // .BreakpointList => {},
+            else => {
+                std.log.err("Unhandled action '{s}'", .{@tagName(args.action)});
+            },
         }
     }
 }

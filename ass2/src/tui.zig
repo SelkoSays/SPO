@@ -10,7 +10,7 @@ const Actions = enum {
     Stop,
     Step,
     DisAsm,
-    Watch,
+    WatchSet,
     WatchRemove,
     WatchList,
     Undo,
@@ -54,7 +54,7 @@ const Actions = enum {
 // |-- remove [idx=]
 // \-- list
 // w, watch
-// |-- set   addr= size=word|byte|numberu
+// |-- set    addr= size=word|byte|number
 // |-- remove [idx=]
 // \-- list
 
@@ -237,7 +237,7 @@ const menu: Menu = Menu{
                         Param{ .name = "addr", .canBeNum = true },
                         Param{ .name = "size", .limited = &.{ "word", "byte" }, .canBeNum = true },
                     },
-                    .action = .Watch,
+                    .action = .WatchSet,
                     .help = "Add 'addr' location to the watch list, with 'size'",
                 },
                 Cmd{
@@ -255,7 +255,7 @@ const menu: Menu = Menu{
                 Cmd{
                     .name = "list",
                     .action = .WatchList,
-                    .help = "List every item on the watchlist",
+                    .help = "List every item on the watchlist. If in 'sync' mode, also prints characters",
                 },
             },
         },
@@ -316,7 +316,7 @@ const menu: Menu = Menu{
             .name = "reload",
             .params = &.{Param{ .name = "file", .optional = true }},
             .action = .Reload,
-            .help = "Clear memory and registers. Reload current file (does not reread file) into memory. Or load 'file' to memory.",
+            .help = "Clear memory and registers if in 'sync' mode. Reload current file (does not reread file) into memory. Or load 'file' to memory. Clear undo buffer",
         },
     },
 };

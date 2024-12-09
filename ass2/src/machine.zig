@@ -209,24 +209,31 @@ const Mem = struct {
     }
 
     pub fn print(self: *const Self, w: std.io.AnyWriter, addr: u24, size: u24, includeChr: bool) !void {
-        var i: u24 = 1;
+        var i: u24 = 0;
 
         try w.print("{X:0>6}", .{addr});
-        while ((i <= size) and (addr + i - 1) < MAX_ADDR) {
+        while ((i < size) and (addr + i) < MAX_ADDR) {
             defer i += 1;
 
-            try w.print(" {X:0>2}", .{self.buf[addr + i - 1]});
-            const last_in_line = ((i % 16) == 0);
+            try w.print(" {X:0>2}", .{self.buf[addr + i]});
+            const last_in_line = (((i + 1) % 16) == 0);
 
-            if (last_in_line) {
+            if (last_in_line and (i < (size - 1))) {
                 if (includeChr) {
                     try w.writeByte(' ');
-                    try self.writeChars(w, addr + (i -| 16), i - (i -| 16));
+                    try self.writeChars(w, addr + (i -| 16), 16);
                 }
 
-                if ((i < size)) {
-                    try w.print("\n{X:0>6}", .{addr + i});
-                }
+                try w.print("\n{X:0>6}", .{addr + i + 1});
+            }
+        }
+
+        if (includeChr) {
+            try w.writeByte(' ');
+            if ((i % 16) != 0) {
+                try self.writeChars(w, addr + (i -| (i % 16)), (i % 16));
+            } else {
+                try self.writeChars(w, addr + (i -| 16), 16);
             }
         }
 
@@ -377,6 +384,22 @@ pub const Machine = struct {
         sic.* = !n and !i;
 
         return address_mode;
+    }
+
+    pub fn reload(self: *Self) !void {
+        if (self.code) |code| {
+            for (code.records) |r| {
+                switch (r) {
+                    .T => |t| {
+                        self.mem.setSlice(t.addr, t.code);
+                    },
+                    // .M => |m| {},
+                    else => return error.UnsupportedRecord,
+                }
+            }
+
+            self.regs.PC = code.start_addr;
+        }
     }
 
     pub fn load(self: *Self, path: []const u8, comptime is_str: bool) !void {
