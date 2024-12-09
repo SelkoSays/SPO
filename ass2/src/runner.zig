@@ -131,7 +131,7 @@ fn runTui(alloc: Allocator) !void {
     const out = std.io.getStdOut();
     const w = out.writer().any();
 
-    _ = try w.write("Any command ran like '.cmd' or '.menu cmd' ... is executed in 'sync' mode.\nIf you want to run a program that requires standard input acces, you should run it in 'sync' mode, otherwise it might not work.\n");
+    _ = try w.write("Any command ran like '.cmd' or '.menu cmd' ... is executed in 'sync' mode.\nIf you want to run a program that requires standard IO access, you should run it in 'sync' mode, otherwise it might not work.\n");
 
     const prompt = "sic> ";
 
@@ -159,9 +159,12 @@ fn runTui(alloc: Allocator) !void {
 
             // machine has to be stopped
             .Load,
+            .Reload,
             .Start,
             .Step,
+            .DisAsm,
             .Undo,
+            .UndoClear,
             .UndoSet,
             .Speed,
             .RegPrint,
@@ -169,8 +172,10 @@ fn runTui(alloc: Allocator) !void {
             .RegClear,
             .MemPrint,
             .MemClear,
+            .WatchRemove,
             .WatchList,
             .Breakpoint,
+            .BreakpointRemove,
             // .MemSet
             => {
                 if (!runner.m.tryLock()) {
@@ -200,7 +205,7 @@ fn runTui(alloc: Allocator) !void {
                     .Step => {
                         const count = args.get("count");
                         if (count == null) {
-                            const str = runner.M.curInstrStr();
+                            const str = runner.M.InstrStr(runner.M.regs.PC, null);
                             if (str) |s| {
                                 printOut(w, "{s}\n", .{s});
                             }
@@ -222,6 +227,21 @@ fn runTui(alloc: Allocator) !void {
                                 runner.M.nStep(@truncate(c.Int));
                             } else {
                                 runner.M.step() catch {};
+                            }
+                        }
+                    },
+                    .DisAsm => {
+                        var addr = if (args.get("addr")) |a| a.Int else runner.M.regs.PC;
+                        const count = if (args.get("count")) |v| v.Int else 1;
+
+                        var i_sz: usize = 0;
+                        for (0..count) |_| {
+                            defer addr += i_sz;
+                            const str = runner.M.InstrStr(@truncate(addr), &i_sz);
+                            if (str) |s| {
+                                printOut(w, "{s}\n", .{s});
+                            } else {
+                                std.log.err("InternalError: could not write instruction", .{});
                             }
                         }
                     },
@@ -290,7 +310,9 @@ fn runTui(alloc: Allocator) !void {
                     },
                     // .WatchList => {},
                     // .Breakpoint => {},
-                    else => {},
+                    else => {
+                        std.log.err("Unhandled action '{s}'", .{@tagName(args.action)});
+                    },
                 }
             },
             .Stop => {

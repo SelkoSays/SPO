@@ -5,14 +5,19 @@ const Actions = enum {
     Noop,
     Quit,
     Load,
+    Reload,
     Start,
     Stop,
     Step,
+    DisAsm,
     Watch,
+    WatchRemove,
     WatchList,
     Undo,
+    UndoClear,
     UndoSet,
     Breakpoint,
+    BreakpointRemove,
     BreakpointList,
     Speed,
     RegPrint,
@@ -27,10 +32,13 @@ const Actions = enum {
 // q, quit
 // start, run, r
 // stop
-// step  [count=]
-// load  file=
+// step   [count=]
+// load   file=
+// reload [file=]
+// d, disassemble [addr=] [count=]
 // u, undo
-// |-- step     [count=]
+// |-- step  [count=]
+// |-- clear, clr
 // \-- size  [val=]
 // mem
 // >> |-- set   addr= val= size=word|byte|number << NOT USED
@@ -42,10 +50,12 @@ const Actions = enum {
 // |-- speed [val=]
 // \-- clear, clr
 // b, breakpoint
-// |-- set   addr=
+// |-- set    addr=
+// |-- remove [idx=]
 // \-- list
 // w, watch
-// |-- set   addr= size=word|byte|number
+// |-- set   addr= size=word|byte|numberu
+// |-- remove [idx=]
 // \-- list
 
 const menu: Menu = Menu{
@@ -163,6 +173,18 @@ const menu: Menu = Menu{
                     .help = "Set breakpoint at address 'addr'",
                 },
                 Cmd{
+                    .name = "remove",
+                    .params = &.{
+                        Param{
+                            .name = "idx",
+                            .canBeNum = true,
+                            .optional = true,
+                        },
+                    },
+                    .action = .BreakpointRemove,
+                    .help = "Removes all breakpoints, or only breakpoint on 'idx' if provided",
+                },
+                Cmd{
                     .name = "list",
                     .action = .BreakpointList,
                     .help = "List all breakpoints",
@@ -184,6 +206,12 @@ const menu: Menu = Menu{
                     },
                     .action = .Undo,
                     .help = "Undoes one instruction or at most 'count' instructions",
+                },
+                Cmd{
+                    .name = "clear",
+                    .alt = &.{"clr"},
+                    .action = .UndoClear,
+                    .help = "Clears undo buffer",
                 },
                 Cmd{
                     .name = "size",
@@ -211,6 +239,18 @@ const menu: Menu = Menu{
                     },
                     .action = .Watch,
                     .help = "Add 'addr' location to the watch list, with 'size'",
+                },
+                Cmd{
+                    .name = "remove",
+                    .params = &.{
+                        Param{
+                            .name = "idx",
+                            .canBeNum = true,
+                            .optional = true,
+                        },
+                    },
+                    .action = .WatchRemove,
+                    .help = "Removes all watched values, or only value on 'idx' if provided",
                 },
                 Cmd{
                     .name = "list",
@@ -249,10 +289,34 @@ const menu: Menu = Menu{
             .help = "Execute one instruction or 'count' instructions",
         },
         Cmd{
+            .name = "disassemble",
+            .alt = &.{"d"},
+            .params = &.{
+                Param{
+                    .name = "addr",
+                    .optional = true,
+                    .canBeNum = true,
+                },
+                Param{
+                    .name = "count",
+                    .optional = true,
+                    .canBeNum = true,
+                },
+            },
+            .action = .DisAsm,
+            .help = "Disassemble the next instruction. If 'addr' provided, dissasemble instruction on that address. If 'count' provided, disassemble that many instructions",
+        },
+        Cmd{
             .name = "load",
             .params = &.{Param{ .name = "file" }},
             .action = .Load,
             .help = "Load 'file' into memory",
+        },
+        Cmd{
+            .name = "reload",
+            .params = &.{Param{ .name = "file", .optional = true }},
+            .action = .Reload,
+            .help = "Clear memory and registers. Reload current file (does not reread file) into memory. Or load 'file' to memory.",
         },
     },
 };
@@ -366,7 +430,7 @@ const Menu = struct {
 
     pub fn str(self: *const Menu, alloc: Allocator, contents: bool) ![]const u8 {
         if (!contents) {
-            var buf = try std.fmt.allocPrint(alloc, "{s:<13}", .{" "});
+            var buf = try std.fmt.allocPrint(alloc, "{s:<14}", .{" "});
             defer alloc.free(buf);
 
             var b = try std.fmt.bufPrint(buf, "{s}", .{self.name});
@@ -383,7 +447,7 @@ const Menu = struct {
         var s = std.ArrayList(u8).init(alloc);
         errdefer s.deinit();
 
-        const buff: []const u8 = try std.fmt.allocPrint(alloc, "{s:<8} {s:<13} PARAMS\n", .{ "TYPE", "NAME" });
+        const buff: []const u8 = try std.fmt.allocPrint(alloc, "{s:<8} {s:<14} PARAMS\n", .{ "TYPE", "NAME" });
         defer alloc.free(buff);
         try s.appendSlice(buff);
 
@@ -437,7 +501,7 @@ const Cmd = struct {
         var s = std.ArrayList(u8).init(alloc);
         errdefer s.deinit();
 
-        var buff = try std.fmt.allocPrint(alloc, "{s:<13}", .{" "});
+        var buff = try std.fmt.allocPrint(alloc, "{s:<14}", .{" "});
         defer alloc.free(buff);
 
         var b = try std.fmt.bufPrint(buff, "{s}", .{self.name});

@@ -266,8 +266,8 @@ pub const Machine = struct {
     }
 
     var instruction_str_buf = [_]u8{0} ** 70;
-    pub fn curInstrStr(self: *const Self) ?[]const u8 {
-        const bytes = self.mem.get(self.regs.PC, [4]u8);
+    pub fn InstrStr(self: *const Self, addr: u24, i_sz: ?*usize) ?[]const u8 {
+        const bytes = self.mem.get(addr, [4]u8);
         const opcode_ni = bytes[0];
         const opcode: Opcode = std.meta.intToEnum(Opcode, (opcode_ni >> 2) << 2) catch return null;
 
@@ -285,7 +285,11 @@ pub const Machine = struct {
             ins_sz += 1;
         }
 
-        var buf = std.fmt.bufPrint(&instruction_str_buf, "{X:0>6}  {X:0>2} {X:0>2} ", .{ self.regs.PC, opcode_ni, xbpe_addr }) catch return null;
+        if (i_sz) |sz| {
+            sz.* = ins_sz;
+        }
+
+        var buf = std.fmt.bufPrint(&instruction_str_buf, "{X:0>6}  {X:0>2} {X:0>2} ", .{ addr, opcode_ni, xbpe_addr }) catch return null;
 
         @memset(instruction_str_buf[buf.len .. buf.len + 5], ' ');
         if (ins_sz == 3) {
@@ -311,18 +315,18 @@ pub const Machine = struct {
             }) catch return null;
             buf.len += bb.len;
         } else if (sic) {
-            const addr = (@as(u15, bytes[1]) << 8) | bytes[2];
+            const addr_ = (@as(u15, bytes[1]) << 8) | bytes[2];
             bb = std.fmt.bufPrint(instruction_str_buf[buf.len..], "{d}{s}", .{
-                addr,
+                addr_,
                 if (x > 0) " + X" else "",
             }) catch return null;
             buf.len += bb.len;
         } else if (ins_sz == 3) {
-            const addr: i12 = @bitCast((@as(u12, xbpe_addr & 0xF) << 8) | bytes[2]);
-            addrStr(addr, &buf, x, b, p, am) orelse return null;
+            const addr_: i12 = @bitCast((@as(u12, xbpe_addr & 0xF) << 8) | bytes[2]);
+            addrStr(addr_, &buf, x, b, p, am) orelse return null;
         } else if (ins_sz == 4) {
-            const addr: i20 = @bitCast(((@as(u20, xbpe_addr & 0xF) << 16) | (@as(u20, bytes[2]) << 8)) | bytes[3]);
-            addrStr(addr, &buf, x, b, p, am) orelse return null;
+            const addr_: i20 = @bitCast(((@as(u20, xbpe_addr & 0xF) << 16) | (@as(u20, bytes[2]) << 8)) | bytes[3]);
+            addrStr(addr_, &buf, x, b, p, am) orelse return null;
         }
 
         return buf;
