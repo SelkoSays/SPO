@@ -26,7 +26,7 @@ pub const Code = struct {
         },
         M: struct {
             addr: u24,
-            size: u8,
+            len: u8,
             sign: ?u8 = null, // + or -
             sym_name: [6]u8 = [_]u8{' '} ** 6,
         },
@@ -67,14 +67,14 @@ pub const Code = struct {
                     for (t.code) |c| {
                         try writer.print("{X:0>2}", .{c});
                     }
-                    try writer.print("\n", .{});
+                    try writer.writeByte('\n');
                 },
                 .M => |m| {
-                    try writer.print("M{X:0>6}{X:0>2}", .{ m.addr, m.size });
+                    try writer.print("M{X:0>6}{X:0>2}", .{ m.addr, m.len });
                     if (m.sign != null) {
                         try writer.print("{c}{X:0>6}", .{ m.sign.?, m.sym_name });
                     }
-                    try writer.print("\n", .{});
+                    try writer.writeByte('\n');
                 },
                 else => {},
             }
@@ -149,20 +149,23 @@ pub fn from_str(str: []const u8, alloc: Allocator) !Result(Code) {
         line_num += 1;
     }
 
-    if (it.peek() != null and it.peek().?[0] == 'M') {
-        return R.err(.{
-            .type = error.MRecordsNotSupported,
-            .line = line_num,
-        });
+    while (it.peek() != null) {
+        const m = read_M_record(it.peek().?, line_num);
+        if (m.is_err()) {
+            if (m.Err.type == error.ExpectedMRecord) {
+                break;
+            }
+
+            return m.map_ok(Code, null);
+        }
+
+        const mm = m.unwrap();
+        try records.append(mm);
+
+        _ = it.next();
+
+        line_num += 1;
     }
-    // TODO: parse M records
-    // while (it.peek() != null) {
-    //     if (it.peek().?[0] != 'M') {
-    //         break;
-    //     }
-    //     line_num += 1;
-    //     _ = it.next();
-    // }
 
     var code = Code{
         .header = header,
@@ -241,7 +244,7 @@ fn read_T_record(line: []const u8, line_num: u32, alloc: Allocator) !Result(Code
     }
 
     const addr = read_int(u24, line[1..7]) catch return parse_err(R, 1, line_num);
-    const len: u8 = read_int(u8, line[7..9]) catch return parse_err(R, 1, line_num);
+    const len: u8 = read_int(u8, line[7..9]) catch return parse_err(R, 7, line_num);
 
     if (len > 0x1E) {
         return R.err(.{
@@ -276,6 +279,44 @@ fn read_T_record(line: []const u8, line_num: u32, alloc: Allocator) !Result(Code
         .addr = addr,
         .len = len,
         .code = try code.toOwnedSlice(),
+    } });
+}
+
+fn read_M_record(line: []const u8, line_num: u32) Result(Code.Record) {
+    const R = Result(Code.Record);
+
+    if (line[0] != 'M') {
+        return R.err(.{
+            .type = error.ExpectedMRecord,
+            .line = line_num,
+        });
+    }
+
+    if (line.len < 9) {
+        return R.err(.{
+            .type = error.WrongMRecordLength,
+            .line = line_num,
+        });
+    }
+
+    const offset = read_int(u24, line[1..7]) catch return parse_err(R, 1, line_num);
+    const len = read_int(u8, line[7..9]) catch return parse_err(R, 7, line_num);
+
+    // addr: u24,
+    // len: u8,
+    // sign: ?u8 = null, // + or -
+    // sym_name: [6]u8 = [_]u8{' '} ** 6,
+
+    if (line.len > 9) {
+        return R.err(.{
+            .type = error.UnsupportedMRecordWithSymbol,
+            .line = line_num,
+        });
+    }
+
+    return R.ok(.{ .M = .{
+        .addr = offset,
+        .len = len,
     } });
 }
 

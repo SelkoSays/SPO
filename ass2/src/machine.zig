@@ -136,6 +136,18 @@ const Mem = struct {
         return ret;
     }
 
+    pub fn peek(self: *const Self, addr: u24, comptime T: type) *T {
+        const size = hl.sizeOf(T);
+        // TODO: check address
+        const ret = std.mem.bytesAsValue(T, self.buf[addr .. addr + size]);
+
+        if (@typeInfo(T) == .Int) {
+            ret.* = std.mem.bigToNative(T, ret.*);
+        }
+
+        return ret;
+    }
+
     pub fn setSlice(self: *Self, addr: u24, slice: []const u8) void {
         @memcpy(self.buf[addr .. addr + slice.len], slice);
     }
@@ -249,6 +261,7 @@ pub const Machine = struct {
     stopped: bool = true,
     code: ?obj.Code = null,
     undo_buf: *undo.UndoBuf,
+    use_undo: bool = true,
     alloc: Allocator,
     in_dbg_mode: bool = false,
 
@@ -388,22 +401,32 @@ pub const Machine = struct {
 
     pub fn reload(self: *Self) !void {
         if (self.code) |code| {
-            for (code.records) |r| {
-                switch (r) {
-                    .T => |t| {
-                        self.mem.setSlice(t.addr, t.code);
-                    },
-                    // .M => |m| {},
-                    else => return error.UnsupportedRecord,
-                }
-            }
-
-            self.regs.PC = code.start_addr;
+            self.load_code(code) catch unreachable;
         }
     }
 
+    fn load_code(self: *Self, code: obj.Code) !void {
+        const start_ = code.header.addr;
+        for (code.records) |r| {
+            switch (r) {
+                .T => |t| {
+                    self.mem.setSlice(t.addr, t.code);
+                },
+                .M => |m| {
+                    const addr = m.addr;
+                    const nibble_len = m.len;
+                    const byte_len = (nibble_len + 1) / 2;
+                    const slice = &self.mem.buf[addr .. addr + byte_len];
+                    hl.add_to_bytes(slice.*, start_, nibble_len);
+                },
+                else => return error.UnsupportedRecord,
+            }
+        }
+
+        self.regs.PC = code.start_addr;
+    }
+
     pub fn load(self: *Self, path: []const u8, comptime is_str: bool) !void {
-        // TODO: clear undo buffer
         const r_code = try if (is_str) blk: {
             break :blk obj.from_str(path, self.alloc);
         } else blk: {
@@ -424,17 +447,7 @@ pub const Machine = struct {
         const code = r_code.unwrap();
         defer code.deinit(self.alloc);
 
-        for (code.records) |r| {
-            switch (r) {
-                .T => |t| {
-                    self.mem.setSlice(t.addr, t.code);
-                },
-                // .M => |m| {},
-                else => return error.UnsupportedRecord,
-            }
-        }
-
-        self.regs.PC = code.start_addr;
+        try self.load_code(code);
     }
 
     pub fn setSpeed(self: *Self, speed_kHz: u64) void {
@@ -477,6 +490,7 @@ pub const Machine = struct {
     }
 
     fn saveReg(self: *const Self, reg: RegIdx) !void {
+        if (!self.use_undo) return;
         const states = self.undo_buf.last() orelse return;
 
         if (reg == .F) {
@@ -487,6 +501,7 @@ pub const Machine = struct {
     }
 
     fn saveMem(self: *Self, addr: u24, val: type) !void {
+        if (!self.use_undo) return;
         const states = self.undo_buf.last() orelse return;
 
         if (val == u8) {
@@ -501,6 +516,8 @@ pub const Machine = struct {
     }
 
     pub fn undoN(self: *Self, count: usize) void {
+        if (!self.use_undo) return;
+
         var i = count;
         while ((self.undo_buf.len > 0) and (i > 0)) {
             defer i -= 1;
@@ -532,9 +549,11 @@ pub const Machine = struct {
     }
 
     pub fn step(self: *Self) !void {
-        const states = try std.ArrayListUnmanaged(undo.State).initCapacity(self.alloc, 2);
-        self.undo_buf.add(states, self.alloc);
-        try self.saveReg(.PC);
+        if (self.use_undo) {
+            const states = try std.ArrayListUnmanaged(undo.State).initCapacity(self.alloc, 2);
+            self.undo_buf.add(states, self.alloc);
+            try self.saveReg(.PC);
+        }
 
         const opcode_ni = self.fetch();
         const opcode: Opcode = std.meta.intToEnum(Opcode, (opcode_ni >> 2) << 2) catch {
@@ -929,7 +948,7 @@ pub const Machine = struct {
 };
 
 test "Regs.set, Regs.get" {
-    var m = Machine.init(undefined, undefined);
+    var m = Machine.init(undefined, undefined, undefined, undefined);
 
     m.regs.set(.A, 1);
     try std.testing.expectEqual(1, m.regs.gpr.A);
@@ -967,119 +986,29 @@ test "Mem.set, Mem.get" {
     try std.testing.expectEqualSlices(u8, expected, buf[0..hl.sizeOf(u48)]);
 }
 
-// test "Machine.step" {
-//     var buf = [_]u8{0} ** 100;
+test "Machine.load with M record" {
+    var buf = [_]u8{0} ** 100;
+    const str =
+        \\Hprg   000001000011
+        \\T00000111B400510000510001510002510003510004
+        \\M00000301
+        \\E000001
+    ;
 
-//     var m = Machine.init(&buf, undefined);
+    var m = Machine.init(&buf, undefined, undefined, std.testing.allocator);
+    m.use_undo = false;
 
-//     m.mem.set(10, @as(u24, 20));
+    try m.load(str, true);
 
-//     try std.testing.expectEqual(20, m.mem.get(10, u24));
+    const prog = m.mem.get(1, [17]u8);
+    try std.testing.expectEqualSlices(u8, &.{
+        0xB4, 0x00, 0x52, 0x00, 0x00, 0x51, 0x00, 0x01,
+        0x51, 0x00, 0x02, 0x51, 0x00, 0x03, 0x51, 0x00,
+        0x04,
+    }, &prog);
 
-//     m.mem.set(0, Is.Fmt{ .f3 = .{
-//         .opcode = @truncate(Opcode.LDA.int()),
-//         .n = false,
-//         .i = true,
-//         .x = false,
-//         .b = false,
-//         .p = false,
-//         .e = false,
-//         .addr = 1,
-//         ._pad = 0,
-//     } });
-
-//     try std.testing.expectEqual(@as(u32, @bitCast(Is.Fmt{ .f3 = .{
-//         .opcode = @truncate(Opcode.LDA.int()),
-//         .n = false,
-//         .i = true,
-//         .x = false,
-//         .b = false,
-//         .p = false,
-//         .e = false,
-//         .addr = 1,
-//         ._pad = 0,
-//     } })), m.mem.getE(0, u32, .big));
-
-//     m.mem.set(3, Is.Fmt{ .f3 = .{
-//         .opcode = @truncate(Opcode.ADD.int()),
-//         .n = true,
-//         .i = true,
-//         .x = false,
-//         .b = false,
-//         .p = false,
-//         .e = false,
-//         .addr = 10,
-//         ._pad = 0,
-//     } });
-
-//     try std.testing.expectEqual(@as(u32, @bitCast(Is.Fmt{ .f3 = .{
-//         .opcode = @truncate(Opcode.ADD.int()),
-//         .n = true,
-//         .i = true,
-//         .x = false,
-//         .b = false,
-//         .p = false,
-//         .e = false,
-//         .addr = 10,
-//         ._pad = 0,
-//     } })), m.mem.getE(3, u32, .big));
-
-//     m.mem.set(6, Is.Fmt{ .f3 = .{
-//         .opcode = @truncate(Opcode.STA.int()),
-//         .n = true,
-//         .i = true,
-//         .x = false,
-//         .b = false,
-//         .p = false,
-//         .e = false,
-//         .addr = 10,
-//         ._pad = 0,
-//     } });
-
-//     try std.testing.expectEqual(@as(u32, @bitCast(Is.Fmt{ .f3 = .{
-//         .opcode = @truncate(Opcode.STA.int()),
-//         .n = true,
-//         .i = true,
-//         .x = false,
-//         .b = false,
-//         .p = false,
-//         .e = false,
-//         .addr = 10,
-//         ._pad = 0,
-//     } })), m.mem.getE(6, u32, .big));
-
-//     m.step();
-//     try std.testing.expectEqual(1, m.regs.gpr.A);
-
-//     m.step();
-//     try std.testing.expectEqual(21, m.regs.gpr.A);
-
-//     m.step();
-//     try std.testing.expectEqual(21, m.mem.get(10, u24));
-// }
-
-// test "STA" {
-//     var buf = [_]u8{0} ** 100;
-
-//     var m = Machine.init(&buf, undefined);
-
-//     m.regs.gpr.A = 10;
-
-//     m.mem.set(0, Is.Fmt{ .f3 = .{
-//         .opcode = @truncate(Opcode.STA.int()),
-//         .n = true,
-//         .i = true,
-//         .x = false,
-//         .b = false,
-//         .p = false,
-//         .e = false,
-//         .addr = 3,
-//         ._pad = 0,
-//     } });
-
-//     m.step();
-//     try std.testing.expectEqual(10, m.mem.get(3, u24));
-// }
+    try std.testing.expectEqual(1, m.regs.PC);
+}
 
 test "Machine.load" {
     var buf = [_]u8{0} ** 100;
@@ -1089,9 +1018,10 @@ test "Machine.load" {
         \\E000001
     ;
 
-    var m = Machine.init(&buf, undefined);
+    var m = Machine.init(&buf, undefined, undefined, std.testing.allocator);
+    m.use_undo = false;
 
-    try m.load(str, true, std.testing.allocator);
+    try m.load(str, true);
 
     const prog = m.mem.get(1, [17]u8);
     try std.testing.expectEqualSlices(u8, &.{
@@ -1105,7 +1035,8 @@ test "Machine.load" {
 
 test "test_arith" {
     var buf = [_]u8{0} ** 200;
-    var m = Machine.init(&buf, undefined);
+    var m = Machine.init(&buf, undefined, undefined, std.testing.allocator);
+    m.use_undo = false;
 
     const str =
         \\HARITH 00000000006F
@@ -1116,7 +1047,7 @@ test "test_arith" {
         \\E000015
     ;
 
-    try m.load(str, true, std.testing.allocator);
+    try m.load(str, true);
 
     m.start();
 
@@ -1126,7 +1057,8 @@ test "test_arith" {
 
 test "test_horner" {
     var buf = [_]u8{0} ** 300;
-    var m = Machine.init(&buf, undefined);
+    var m = Machine.init(&buf, undefined, undefined, std.testing.allocator);
+    m.use_undo = false;
 
     const str =
         \\HHORNER000000000059
@@ -1136,7 +1068,7 @@ test "test_horner" {
         \\E000015
     ;
 
-    try m.load(str, true, std.testing.allocator);
+    try m.load(str, true);
 
     m.start();
 
