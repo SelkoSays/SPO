@@ -47,7 +47,7 @@ const Runner = struct {
 var runner: Runner = .{};
 
 pub fn init(alloc: Allocator) !void {
-    const buf = try alloc.alloc(u8, 1 << 21);
+    const buf = try alloc.alloc(u8, 1 << 20);
     @memset(buf, 0);
     errdefer alloc.free(buf);
     runner.mem_buf = buf;
@@ -385,8 +385,23 @@ fn runTui(alloc: Allocator) !void {
                         const idx = args.get("idx");
 
                         if (idx) |i| {
+                            if (i.Int >= runner.breakpoints.count()) {
+                                continue;
+                            }
+
+                            const it = runner.breakpoints.iterator();
+                            const addr = it.keys[i.Int];
+                            const v = it.values[i.Int];
+
+                            runner.M.mem.set(addr, v);
+
                             runner.breakpoints.orderedRemoveAt(i.Int);
                         } else {
+                            var it = runner.breakpoints.iterator();
+
+                            while (it.next()) |e| {
+                                runner.M.mem.set(e.key_ptr.*, e.value_ptr.*);
+                            }
                             runner.breakpoints.clearAndFree();
                         }
                     },
