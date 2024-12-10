@@ -374,7 +374,7 @@ fn runTui(alloc: Allocator) !void {
                         const addr = args.get("addr").?.Int;
 
                         if (!runner.breakpoints.contains(@truncate(addr))) {
-                            const rep = runner.M.mem.get(@truncate(addr), u8);
+                            const rep = runner.M.mem.get(@truncate(addr), u8) orelse continue;
                             runner.breakpoints.put(@truncate(addr), rep) catch {
                                 std.log.err("InternalError: Unable to add breakpoint.", .{});
                             };

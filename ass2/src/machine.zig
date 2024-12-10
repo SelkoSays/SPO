@@ -125,9 +125,13 @@ const Mem = struct {
 
     const Self = @This();
 
-    pub fn get(self: *const Self, addr: u24, comptime T: type) T {
+    pub fn get(self: *const Self, addr: u24, comptime T: type) ?T {
+        if (addr > MAX_ADDR) {
+            std.log.err("Invalid address {d}", .{addr});
+            return null;
+        }
+
         const size = hl.sizeOf(T);
-        // TODO: check address
         var ret = std.mem.bytesToValue(T, self.buf[addr .. addr + size]);
 
         if (@typeInfo(T) == .Int) {
@@ -137,7 +141,12 @@ const Mem = struct {
         return ret;
     }
 
-    pub fn peek(self: *const Self, addr: u24, comptime T: type) *T {
+    pub fn peek(self: *const Self, addr: u24, comptime T: type) ?*T {
+        if (addr > MAX_ADDR) {
+            std.log.err("Invalid address {d}", .{addr});
+            return null;
+        }
+
         const size = hl.sizeOf(T);
         // TODO: check address
         const ret = std.mem.bytesAsValue(T, self.buf[addr .. addr + size]);
@@ -150,10 +159,20 @@ const Mem = struct {
     }
 
     pub fn setSlice(self: *Self, addr: u24, slice: []const u8) void {
+        if (addr > MAX_ADDR) {
+            std.log.err("Invalid address {d}", .{addr});
+            return;
+        }
+
         @memcpy(self.buf[addr .. addr + slice.len], slice);
     }
 
     pub fn set(self: *Self, addr: u24, val: anytype) void {
+        if (addr > MAX_ADDR) {
+            std.log.err("Invalid address {d}", .{addr});
+            return;
+        }
+
         const T: type = @TypeOf(val);
         const size = hl.sizeOf(T);
 
@@ -169,7 +188,12 @@ const Mem = struct {
         ptr.* = v;
     }
 
-    pub fn getE(self: *const Self, addr: u24, comptime T: type, comptime enidan: std.builtin.Endian) T {
+    pub fn getE(self: *const Self, addr: u24, comptime T: type, comptime enidan: std.builtin.Endian) ?T {
+        if (addr > MAX_ADDR) {
+            std.log.err("Invalid address {d}", .{addr});
+            return;
+        }
+
         const size = hl.sizeOf(T);
         // TODO: check address
         var ret = std.mem.bytesAsValue(T, self.buf[addr .. addr + size]).*;
@@ -183,6 +207,11 @@ const Mem = struct {
     }
 
     pub fn setE(self: *Self, addr: u24, val: anytype, comptime enidan: std.builtin.Endian) void {
+        if (addr > MAX_ADDR) {
+            std.log.err("Invalid address {d}", .{addr});
+            return;
+        }
+
         const T: type = @TypeOf(val);
         const size = hl.sizeOf(T);
 
@@ -200,12 +229,21 @@ const Mem = struct {
     }
 
     pub fn setF(self: *Self, addr: u24, val: f64) void {
+        if (addr > MAX_ADDR) {
+            std.log.err("Invalid address {d}", .{addr});
+            return;
+        }
+
         const v: u48 = @truncate(@as(u64, @bitCast(val)) >> (@bitSizeOf(u64) - @bitSizeOf(u48)));
         self.set(addr, v);
     }
 
-    pub fn getF(self: *const Self, addr: u24) f64 {
-        return @bitCast(@as(u64, self.get(addr, u48)) << (@bitSizeOf(u64) - @bitSizeOf(u48)));
+    pub fn getF(self: *const Self, addr: u24) ?f64 {
+        if (addr > MAX_ADDR) {
+            std.log.err("Invalid address {d}", .{addr});
+            return null;
+        }
+        return @bitCast(@as(u64, self.get(addr, u48) orelse return null) << (@bitSizeOf(u64) - @bitSizeOf(u48)));
     }
 
     fn writeChars(self: *const Self, w: std.io.AnyWriter, addr: u24, size: u24) !void {
@@ -290,7 +328,7 @@ pub const Machine = struct {
 
     var instruction_str_buf = [_]u8{0} ** 70;
     pub fn instrStr(self: *const Self, addr: u24, i_sz: ?*usize) ?[]const u8 {
-        const bytes = self.mem.get(addr, [4]u8);
+        const bytes = self.mem.get(addr, [4]u8) orelse return null;
         var opcode_ni = bytes[0];
         var opcode: Opcode = std.meta.intToEnum(Opcode, (opcode_ni >> 2) << 2) catch return null;
 
@@ -529,11 +567,11 @@ pub const Machine = struct {
         const states = self.undo_buf.last() orelse return;
 
         if (val == u8) {
-            try states.append(self.alloc, .{ .MemByteState = .{ .addr = addr, .val = self.mem.get(addr, val) } });
+            try states.append(self.alloc, .{ .MemByteState = .{ .addr = addr, .val = self.mem.get(addr, val) orelse return } });
         } else if (val == u24) {
-            try states.append(self.alloc, .{ .MemWordState = .{ .addr = addr, .val = self.mem.get(addr, val) } });
+            try states.append(self.alloc, .{ .MemWordState = .{ .addr = addr, .val = self.mem.get(addr, val) orelse return } });
         } else if (val == f64) {
-            try states.append(self.alloc, .{ .MemFState = .{ .addr = addr, .val = self.mem.get(addr, val) } });
+            try states.append(self.alloc, .{ .MemFState = .{ .addr = addr, .val = self.mem.get(addr, val) orelse return } });
         } else {
             @compileError("Cannot save any other type rather than u8, u24, f64");
         }
@@ -573,6 +611,11 @@ pub const Machine = struct {
     }
 
     pub fn step(self: *Self) !void {
+        if (self.regs.PC > Mem.MAX_ADDR) {
+            std.log.err("Invalid address {d}", .{self.regs.PC});
+            return;
+        }
+
         const dbg_addr: u24 = self.regs.PC;
         if (self.in_dbg_mode) {
             if (self.bps.get(self.regs.PC)) |a| {
@@ -615,14 +658,14 @@ pub const Machine = struct {
 
         var ins_sz = Is.opTable.get(opcode) orelse 0;
         if (ins_sz > 2) {
-            const e = ((self.mem.get(self.regs.PC, u8) >> 4) & 1);
+            const e = ((self.mem.get(self.regs.PC, u8).? >> 4) & 1);
             if (e == 1) ins_sz += 1;
         }
 
         const operand = switch (opcode) {
-            .STA, .STX, .STL, .JSUB, .STCH, .STB, .STS, .STT, .STSW, .J, .JEQ, .JGT, .JLT => self.getAddr(u24, sic, true, address_mode),
+            .STA, .STX, .STL, .JSUB, .STCH, .STB, .STS, .STT, .STSW, .J, .JEQ, .JGT, .JLT => self.getAddr(u24, sic, true, address_mode) orelse return error.InvalidAddress,
             .LDCH, .ADDF, .SUBF, .MULF, .DIVF, .COMPF, .RD, .WD, .TD => 0,
-            else => if (ins_sz > 2) self.getAddr(u24, sic, false, address_mode) else 0,
+            else => if (ins_sz > 2) self.getAddr(u24, sic, false, address_mode) orelse return error.InvalidAddress else 0,
         };
 
         const regs = if (ins_sz == 2) self.fetch() else 0;
@@ -724,8 +767,8 @@ pub const Machine = struct {
             // load and store byte
             .LDCH => {
                 try self.saveReg(.A);
-                self.regs.gpr.A &= ~@as(u24, 0xFF);
-                self.regs.gpr.A |= self.getAddr(u8, sic, false, address_mode);
+                const a = self.regs.gpr.A & ~@as(u24, 0xFF);
+                self.regs.gpr.A = a | (self.getAddr(u8, sic, false, address_mode) orelse return error.InvalidAddress);
             },
             .STCH => if (address_mode != .Immediate) {
                 try self.saveMem(operand, u8);
@@ -737,28 +780,28 @@ pub const Machine = struct {
             // floating point arithmetic
             .ADDF => {
                 try self.saveReg(.F);
-                self.regs.F += self.getAddr(f64, sic, false, address_mode);
+                self.regs.F += self.getAddr(f64, sic, false, address_mode) orelse return error.InvalidAddress;
                 self.regs.F = hl.chopFloat(self.regs.F);
             },
             .SUBF => {
                 try self.saveReg(.F);
-                self.regs.F -= self.getAddr(f64, sic, false, address_mode);
+                self.regs.F -= self.getAddr(f64, sic, false, address_mode) orelse return error.InvalidAddress;
                 self.regs.F = hl.chopFloat(self.regs.F);
             },
             .MULF => {
                 try self.saveReg(.F);
-                self.regs.F *= self.getAddr(f64, sic, false, address_mode);
+                self.regs.F *= self.getAddr(f64, sic, false, address_mode) orelse return error.InvalidAddress;
                 self.regs.F = hl.chopFloat(self.regs.F);
             },
             .DIVF => {
                 try self.saveReg(.F);
-                self.regs.F /= self.getAddr(f64, sic, false, address_mode);
+                self.regs.F /= self.getAddr(f64, sic, false, address_mode) orelse return error.InvalidAddress;
                 self.regs.F = hl.chopFloat(self.regs.F);
             },
             .COMPF => {
                 try self.saveReg(.F);
                 try self.saveReg(.SW);
-                const f = self.getAddr(f64, sic, false, address_mode);
+                const f = self.getAddr(f64, sic, false, address_mode) orelse return error.InvalidAddress;
                 self.regs.SW.s.cc = comp(self.regs.F, f);
             },
 
@@ -773,7 +816,7 @@ pub const Machine = struct {
             },
             .LDF => {
                 try self.saveReg(.F);
-                self.regs.F = self.getAddr(f64, sic, false, address_mode);
+                self.regs.F = self.getAddr(f64, sic, false, address_mode) orelse return error.InvalidAddress;
             },
             .LDT => {
                 try self.saveReg(.T);
@@ -817,7 +860,7 @@ pub const Machine = struct {
             // devices
             .RD => {
                 try self.saveReg(.A);
-                const dev_ = self.getAddr(u8, sic, false, address_mode);
+                const dev_ = self.getAddr(u8, sic, false, address_mode) orelse return error.InvalidAddress;
                 const r = self.devs.getDevice(dev_).read();
                 if (r) |rr| {
                     self.regs.gpr.A = rr;
@@ -827,12 +870,12 @@ pub const Machine = struct {
                 }
             },
             .WD => {
-                const dev_ = self.getAddr(u8, sic, false, address_mode);
+                const dev_ = self.getAddr(u8, sic, false, address_mode) orelse return error.InvalidAddress;
                 self.devs.getDevice(dev_).write(@truncate(self.regs.gpr.A & 0xFF));
             },
             .TD => {
                 try self.saveReg(.SW);
-                const dev_ = self.getAddr(u8, sic, false, address_mode);
+                const dev_ = self.getAddr(u8, sic, false, address_mode) orelse return error.InvalidAddress;
                 const t = self.devs.getDevice(dev_).@"test"();
                 if (!t) {
                     self.regs.SW.s.cc = .Greater;
@@ -959,26 +1002,26 @@ pub const Machine = struct {
         }
     }
 
-    fn get(self: *Self, comptime T: type, addr: u24, addr_mode: AddrMode, comptime addr_size: usize) T {
+    fn get(self: *Self, comptime T: type, addr: u24, addr_mode: AddrMode, comptime addr_size: usize) ?T {
         if (T == f64) {
             const shift = @bitSizeOf(u48) - (@bitSizeOf(u24) - addr_size);
 
             return switch (addr_mode) {
                 .Immediate => @bitCast(@as(u64, addr) << shift), // ????????
                 .Normal => self.mem.getF(addr),
-                .Indirect => self.mem.getF(self.mem.get(addr, u24)),
+                .Indirect => self.mem.getF(self.mem.get(addr, u24) orelse return null),
                 .None => unreachable,
             };
         }
         return switch (addr_mode) {
             .Immediate => @truncate(addr),
-            .Normal => self.mem.get(addr, T),
-            .Indirect => self.mem.get(self.mem.get(addr, u24), T),
+            .Normal => self.mem.get(addr, T) orelse return null,
+            .Indirect => self.mem.get(self.mem.get(addr, u24) orelse return null, T) orelse return null,
             .None => unreachable, // Error
         };
     }
 
-    fn getAddr(self: *Self, comptime T: type, sic: bool, comptime is_store: bool, addr_mode: AddrMode) T {
+    fn getAddr(self: *Self, comptime T: type, sic: bool, comptime is_store: bool, addr_mode: AddrMode) ?T {
         const am: AddrMode = if (is_store) @enumFromInt(@intFromEnum(addr_mode) -| 1) else addr_mode;
 
         const xbpe_addr = self.fetch();
@@ -1011,7 +1054,7 @@ pub const Machine = struct {
     }
 
     fn fetch(self: *Self) u8 {
-        const ret = self.mem.get(self.regs.PC, u8);
+        const ret = self.mem.get(self.regs.PC, u8).?;
         self.regs.PC += 1;
         return ret;
     }
@@ -1043,13 +1086,13 @@ test "Mem.set, Mem.get" {
 
     try std.testing.expectEqualSlices(u8, &.{ 0, 0, 10 }, buf[0..3]);
 
-    const v = mem.get(0, u24);
+    const v = mem.get(0, u24).?;
 
     try std.testing.expectEqual(10, v);
 
     mem.setF(0, 1.0);
 
-    const f = mem.getF(0);
+    const f = mem.getF(0).?;
     try std.testing.expectEqual(1.0, f);
 
     const expected = std.mem.toBytes(std.mem.nativeToBig(u48, @truncate(@as(u64, @bitCast(@as(f64, 1.0))) >> 16)))[0..hl.sizeOf(u48)];
@@ -1069,8 +1112,13 @@ test "Machine.load with M record" {
     m.use_undo = false;
 
     try m.load(str, true);
+    defer {
+        if (m.code) |c| {
+            c.deinit(std.testing.allocator);
+        }
+    }
 
-    const prog = m.mem.get(1, [17]u8);
+    const prog = m.mem.get(1, [17]u8).?;
     try std.testing.expectEqualSlices(u8, &.{
         0xB4, 0x00, 0x52, 0x00, 0x00, 0x51, 0x00, 0x01,
         0x51, 0x00, 0x02, 0x51, 0x00, 0x03, 0x51, 0x00,
@@ -1092,8 +1140,13 @@ test "Machine.load" {
     m.use_undo = false;
 
     try m.load(str, true);
+    defer {
+        if (m.code) |c| {
+            c.deinit(std.testing.allocator);
+        }
+    }
 
-    const prog = m.mem.get(1, [17]u8);
+    const prog = m.mem.get(1, [17]u8).?;
     try std.testing.expectEqualSlices(u8, &.{
         0xB4, 0x00, 0x51, 0x00, 0x00, 0x51, 0x00, 0x01,
         0x51, 0x00, 0x02, 0x51, 0x00, 0x03, 0x51, 0x00,
@@ -1118,11 +1171,16 @@ test "test_arith" {
     ;
 
     try m.load(str, true);
+    defer {
+        if (m.code) |c| {
+            c.deinit(std.testing.allocator);
+        }
+    }
 
     m.start();
 
     const res = [_]u8{ 0, 0, 7, 0, 0, 4, 0, 0, 11, 0, 0, 3, 0, 0, 28, 0, 0, 1, 0, 0, 3 };
-    try std.testing.expectEqualSlices(u8, &res, &m.mem.get(0, [7 * 3]u8));
+    try std.testing.expectEqualSlices(u8, &res, &m.mem.get(0, [7 * 3]u8).?);
 }
 
 test "test_horner" {
@@ -1139,10 +1197,15 @@ test "test_horner" {
     ;
 
     try m.load(str, true);
+    defer {
+        if (m.code) |c| {
+            c.deinit(std.testing.allocator);
+        }
+    }
 
     m.start();
 
-    try std.testing.expectEqual(57, m.mem.get(0x12, u24));
+    try std.testing.expectEqual(57, m.mem.get(0x12, u24).?);
 }
 
 test "fact" {
@@ -1160,6 +1223,11 @@ test "fact" {
     ;
 
     try m.load(PRG_FACT, true);
+    defer {
+        if (m.code) |c| {
+            c.deinit(std.testing.allocator);
+        }
+    }
 
     m.start();
 
@@ -1199,6 +1267,11 @@ test "cat" {
     m.devs.setDevice(1, Device.from_rw(null, bw.writer().any()));
 
     try m.load(PRG_CAT, true);
+    defer {
+        if (m.code) |c| {
+            c.deinit(std.testing.allocator);
+        }
+    }
 
     m.start();
 
