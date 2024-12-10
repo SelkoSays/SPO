@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const RegIdx = @import("machine.zig").RegIdx;
-const ring_buffer = @import("ring_buffer.zig");
+const ring_buffer = @import("ring_buffer");
 
 pub const State = union(enum) {
     MemByteState: struct { addr: u24, val: u8 },
