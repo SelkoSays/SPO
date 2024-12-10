@@ -20,6 +20,7 @@ const tui = @import("tui.zig");
 const undo = @import("undo.zig");
 
 const WatchList = std.AutoArrayHashMap(u24, u24); // K = address, V = size
+pub const Breakpoints = std.AutoArrayHashMap(u24, u8); // K = address, V = byte
 
 const Runner = struct {
     M: Machine = undefined,
@@ -32,6 +33,7 @@ const Runner = struct {
     dev_buf: *Machine.OSDevices = undefined,
     undo_buf: *undo.UndoBuf = undefined,
     watch_list: WatchList = undefined,
+    breakpoints: Breakpoints = undefined,
 
     const Action = enum {
         Step,
@@ -64,7 +66,11 @@ pub fn init(alloc: Allocator) !void {
     errdefer w_list.deinit();
     runner.watch_list = w_list;
 
-    runner.M = Machine.init(@ptrCast(buf), devs, u_buf, alloc);
+    const bps = Breakpoints.init(alloc);
+    errdefer bps.deinit();
+    runner.breakpoints = bps;
+
+    runner.M = Machine.init(@ptrCast(buf), devs, u_buf, &runner.breakpoints, alloc);
 
     runner.M.devs.setDevice(0, Device.init(std.io.getStdIn(), "", false));
     runner.M.devs.setDevice(1, Device.init(std.io.getStdOut(), "", false));
@@ -81,6 +87,11 @@ pub fn deinit(alloc: Allocator) void {
     alloc.destroy(runner.undo_buf);
 
     runner.watch_list.deinit();
+    runner.breakpoints.deinit();
+
+    if (runner.M.code) |c| {
+        c.deinit(alloc);
+    }
 }
 
 const RunAction = union(enum) {
@@ -183,7 +194,7 @@ fn runTui(alloc: Allocator) !void {
             .MemPrint,
             .MemClear,
             .WatchList,
-            .Breakpoint,
+            .BreakpointSet,
             .BreakpointRemove,
             // .MemSet
             => {
@@ -219,7 +230,7 @@ fn runTui(alloc: Allocator) !void {
                                 std.log.err("Cannot load file.", .{});
                             };
                         } else {
-                            runner.M.reload() catch unreachable; // if machine has code, it should be valid
+                            runner.M.reload(); // if machine has code, it should be valid
                         }
                     },
                     .Start => {
@@ -236,7 +247,7 @@ fn runTui(alloc: Allocator) !void {
                     .Step => {
                         const count = args.get("count");
                         if (count == null) {
-                            const str = runner.M.InstrStr(runner.M.regs.PC, null);
+                            const str = runner.M.instrStr(runner.M.regs.PC, null);
                             if (str) |s| {
                                 printOut(w, "{s}\n", .{s});
                             }
@@ -258,6 +269,9 @@ fn runTui(alloc: Allocator) !void {
                                 runner.M.nStep(@truncate(c.Int));
                             } else {
                                 runner.M.step() catch {};
+                                if (runner.M.in_dbg_mode) {
+                                    runner.M.step() catch {};
+                                }
                             }
                         }
                     },
@@ -268,7 +282,7 @@ fn runTui(alloc: Allocator) !void {
                         var i_sz: usize = 0;
                         for (0..count) |_| {
                             defer addr += i_sz;
-                            const str = runner.M.InstrStr(@truncate(addr), &i_sz);
+                            const str = runner.M.instrStr(@truncate(addr), &i_sz);
                             if (str) |s| {
                                 printOut(w, "{s}\n", .{s});
                             } else {
@@ -356,6 +370,26 @@ fn runTui(alloc: Allocator) !void {
                             };
                         }
                     },
+                    .BreakpointSet => {
+                        const addr = args.get("addr").?.Int;
+
+                        if (!runner.breakpoints.contains(@truncate(addr))) {
+                            const rep = runner.M.mem.get(@truncate(addr), u8);
+                            runner.breakpoints.put(@truncate(addr), rep) catch {
+                                std.log.err("InternalError: Unable to add breakpoint.", .{});
+                            };
+                            runner.M.mem.set(@truncate(addr), Opcode.INT.int());
+                        }
+                    },
+                    .BreakpointRemove => {
+                        const idx = args.get("idx");
+
+                        if (idx) |i| {
+                            runner.breakpoints.orderedRemoveAt(i.Int);
+                        } else {
+                            runner.breakpoints.clearAndFree();
+                        }
+                    },
                     else => {
                         std.log.err("Unhandled action '{s}'", .{@tagName(args.action)});
                     },
@@ -393,9 +427,24 @@ fn runTui(alloc: Allocator) !void {
                     runner.watch_list.clearAndFree();
                 }
             },
-            // .BreakpointList => {},
-            else => {
-                std.log.err("Unhandled action '{s}'", .{@tagName(args.action)});
+            .BreakpointList => {
+                var it = runner.breakpoints.iterator();
+                if (it.len == 0) {
+                    printOut(w, "No breakpoints to show\n", .{});
+                    continue;
+                }
+
+                var i: u24 = 0;
+                while (it.next()) |e| {
+                    defer i += 1;
+                    printOut(w, "{d}:\n ", .{i});
+                    const str = runner.M.instrStr(e.key_ptr.*, null);
+                    if (str) |s| {
+                        printOut(w, "{s}\n", .{s});
+                    } else {
+                        std.log.err("InternalError: could not write instruction", .{});
+                    }
+                }
             },
         }
     }
@@ -410,7 +459,12 @@ fn execute_machine() void {
         }
 
         switch (runner.action) {
-            .Step => runner.M.step() catch {},
+            .Step => {
+                runner.M.step() catch {};
+                if (runner.M.in_dbg_mode) {
+                    runner.M.step() catch {};
+                }
+            },
             .NStep => runner.M.nStep(runner.n_instr),
             .Start => runner.M.start(),
             .Noop, .Wait => {},

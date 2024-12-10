@@ -16,7 +16,7 @@ const Actions = enum {
     Undo,
     UndoClear,
     UndoSet,
-    Breakpoint,
+    BreakpointSet,
     BreakpointRemove,
     BreakpointList,
     Speed,
@@ -169,7 +169,7 @@ const menu: Menu = Menu{
                             .canBeNum = true,
                         },
                     },
-                    .action = .Breakpoint,
+                    .action = .BreakpointSet,
                     .help = "Set breakpoint at address 'addr'",
                 },
                 Cmd{

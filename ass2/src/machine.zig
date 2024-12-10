@@ -10,6 +10,7 @@ const Opcode = Is.Opcode;
 const Fmt = Is.Fmt;
 const obj = @import("obj_reader.zig");
 const undo = @import("undo.zig");
+const Breakpoints = @import("runner.zig").Breakpoints;
 
 pub const RegIdx = enum(u4) {
     A = 0x0,
@@ -264,6 +265,7 @@ pub const Machine = struct {
     use_undo: bool = true,
     alloc: Allocator,
     in_dbg_mode: bool = false,
+    bps: *Breakpoints,
 
     pub const OSDevices = Devices(256);
 
@@ -276,20 +278,28 @@ pub const Machine = struct {
 
     const Self = @This();
 
-    pub fn init(buf: [*]u8, devs: *OSDevices, undo_buf: *undo.UndoBuf, alloc: Allocator) Self {
+    pub fn init(buf: [*]u8, devs: *OSDevices, undo_buf: *undo.UndoBuf, bps: *Breakpoints, alloc: Allocator) Self {
         return .{
             .mem = .{ .buf = buf },
             .devs = devs,
             .undo_buf = undo_buf,
             .alloc = alloc,
+            .bps = bps,
         };
     }
 
     var instruction_str_buf = [_]u8{0} ** 70;
-    pub fn InstrStr(self: *const Self, addr: u24, i_sz: ?*usize) ?[]const u8 {
+    pub fn instrStr(self: *const Self, addr: u24, i_sz: ?*usize) ?[]const u8 {
         const bytes = self.mem.get(addr, [4]u8);
-        const opcode_ni = bytes[0];
-        const opcode: Opcode = std.meta.intToEnum(Opcode, (opcode_ni >> 2) << 2) catch return null;
+        var opcode_ni = bytes[0];
+        var opcode: Opcode = std.meta.intToEnum(Opcode, (opcode_ni >> 2) << 2) catch return null;
+
+        if (opcode == .INT) {
+            if (self.bps.get(addr)) |i| {
+                opcode_ni = i;
+                opcode = std.meta.intToEnum(Opcode, (opcode_ni >> 2) << 2) catch return null;
+            }
+        }
 
         const xbpe_addr = bytes[1];
         const x = (xbpe_addr & 0x80) >> 7;
@@ -399,7 +409,7 @@ pub const Machine = struct {
         return address_mode;
     }
 
-    pub fn reload(self: *Self) !void {
+    pub fn reload(self: *Self) void {
         if (self.code) |code| {
             self.load_code(code) catch unreachable;
         }
@@ -427,6 +437,10 @@ pub const Machine = struct {
     }
 
     pub fn load(self: *Self, path: []const u8, comptime is_str: bool) !void {
+        if (self.code) |c| {
+            c.deinit(self.alloc);
+        }
+
         const r_code = try if (is_str) blk: {
             break :blk obj.from_str(path, self.alloc);
         } else blk: {
@@ -445,7 +459,9 @@ pub const Machine = struct {
         }
 
         const code = r_code.unwrap();
-        defer code.deinit(self.alloc);
+        errdefer code.deinit(self.alloc);
+
+        self.code = code;
 
         try self.load_code(code);
     }
@@ -485,6 +501,13 @@ pub const Machine = struct {
             self.step() catch {
                 self.stopped = true;
             };
+
+            if (self.in_dbg_mode) {
+                self.step() catch {
+                    self.stopped = true;
+                };
+            }
+
             nn -= 1;
         }
     }
@@ -550,6 +573,24 @@ pub const Machine = struct {
     }
 
     pub fn step(self: *Self) !void {
+        const dbg_addr: u24 = self.regs.PC;
+        if (self.in_dbg_mode) {
+            if (self.bps.get(self.regs.PC)) |a| {
+                self.mem.set(self.regs.PC, a);
+            } else {
+                std.log.err("Invalid debug mode (breakpoint)", .{});
+                self.stop();
+                return;
+            }
+        }
+
+        errdefer {
+            if (self.in_dbg_mode) {
+                self.mem.set(dbg_addr, Opcode.INT.int());
+                self.in_dbg_mode = false;
+            }
+        }
+
         if (self.use_undo) {
             var states = try std.ArrayListUnmanaged(undo.State).initCapacity(self.alloc, 2);
             errdefer states.deinit(self.alloc);
@@ -876,8 +917,23 @@ pub const Machine = struct {
             // .HIO => {},
             // .SIO => {},
             // .TIO => {},
+            .INT => {
+                self.stop();
+                self.in_dbg_mode = true;
+                self.regs.PC -= ins_sz;
+                if (self.undo_buf.popBack()) |e| {
+                    var ee = e;
+                    ee.deinit(self.alloc);
+                } // remove last undo entry
+                return;
+            },
 
-            else => std.log.info("unhandeled instruction", .{}),
+            else => std.log.warn("unhandeled instruction", .{}),
+        }
+
+        if (self.in_dbg_mode) {
+            self.mem.set(dbg_addr, Opcode.INT.int());
+            self.in_dbg_mode = false;
         }
     }
 
@@ -962,7 +1018,7 @@ pub const Machine = struct {
 };
 
 test "Regs.set, Regs.get" {
-    var m = Machine.init(undefined, undefined, undefined, undefined);
+    var m = Machine.init(undefined, undefined, undefined, undefined, undefined);
 
     m.regs.set(.A, 1);
     try std.testing.expectEqual(1, m.regs.gpr.A);
@@ -1009,7 +1065,7 @@ test "Machine.load with M record" {
         \\E000001
     ;
 
-    var m = Machine.init(&buf, undefined, undefined, std.testing.allocator);
+    var m = Machine.init(&buf, undefined, undefined, undefined, std.testing.allocator);
     m.use_undo = false;
 
     try m.load(str, true);
@@ -1032,7 +1088,7 @@ test "Machine.load" {
         \\E000001
     ;
 
-    var m = Machine.init(&buf, undefined, undefined, std.testing.allocator);
+    var m = Machine.init(&buf, undefined, undefined, undefined, std.testing.allocator);
     m.use_undo = false;
 
     try m.load(str, true);
@@ -1049,7 +1105,7 @@ test "Machine.load" {
 
 test "test_arith" {
     var buf = [_]u8{0} ** 200;
-    var m = Machine.init(&buf, undefined, undefined, std.testing.allocator);
+    var m = Machine.init(&buf, undefined, undefined, undefined, std.testing.allocator);
     m.use_undo = false;
 
     const str =
@@ -1071,7 +1127,7 @@ test "test_arith" {
 
 test "test_horner" {
     var buf = [_]u8{0} ** 300;
-    var m = Machine.init(&buf, undefined, undefined, std.testing.allocator);
+    var m = Machine.init(&buf, undefined, undefined, undefined, std.testing.allocator);
     m.use_undo = false;
 
     const str =
@@ -1091,7 +1147,7 @@ test "test_horner" {
 
 test "fact" {
     var buf = [_]u8{0} ** 1000;
-    var m = Machine.init(&buf, undefined, undefined, std.testing.allocator);
+    var m = Machine.init(&buf, undefined, undefined, undefined, std.testing.allocator);
     m.use_undo = false;
 
     const PRG_FACT =
@@ -1115,7 +1171,7 @@ test "cat" {
 
     var devs = Machine.OSDevices{};
 
-    var m = Machine.init(&buf, &devs, undefined, std.testing.allocator);
+    var m = Machine.init(&buf, &devs, undefined, undefined, std.testing.allocator);
     m.use_undo = false;
 
     // ```asm
