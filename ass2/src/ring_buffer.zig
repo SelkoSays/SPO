@@ -20,11 +20,15 @@ pub fn ForgetfulRingBuffer(comptime T: type, comptime free_item: ?*const fn (*T,
         }
 
         pub fn deinit(self: *Self, alloc: Allocator) void {
-            if (free_item != null) {
+            if (free_item) |fi| {
                 var i = self.leftIdx;
-                while (i != self.rightIdx) {
-                    defer i = (i + 1) % self.items.len;
-                    free_item.?(&self.items[i], alloc);
+                while (self.len > 0) {
+                    defer {
+                        self.len -= 1;
+                        i = (i + 1) % self.items.len;
+                    }
+
+                    fi(&self.items[i], alloc);
                 }
             }
             alloc.free(self.items);
@@ -125,10 +129,16 @@ pub fn ForgetfulRingBuffer(comptime T: type, comptime free_item: ?*const fn (*T,
             return &self.items[i];
         }
 
-        pub fn clearAndFree(self: *Self, alloc: Allocator) void {
+        pub fn clear(self: *Self, alloc: Allocator) void {
             if (free_item) |fi| {
-                for (self.items) |*i| {
-                    fi(i, alloc);
+                var i = self.leftIdx;
+                while (self.len > 0) {
+                    defer {
+                        self.len -= 1;
+                        i = (i + 1) % self.items.len;
+                    }
+
+                    fi(&self.items[i], alloc);
                 }
             }
 

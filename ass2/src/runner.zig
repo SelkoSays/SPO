@@ -201,7 +201,7 @@ fn runTui(alloc: Allocator) !void {
                         };
                     },
                     .Reload => {
-                        runner.undo_buf.clearAndFree(alloc);
+                        runner.undo_buf.clear(alloc);
 
                         if (!sync) {
                             // Clear registers and memory
@@ -290,7 +290,7 @@ fn runTui(alloc: Allocator) !void {
                         };
                     },
                     .UndoClear => {
-                        runner.undo_buf.clearAndFree(alloc);
+                        runner.undo_buf.clear(alloc);
                     },
                     .RegPrint => {
                         const o_reg_name = args.get("reg");
