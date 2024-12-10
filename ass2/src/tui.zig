@@ -280,6 +280,7 @@ const menu: Menu = Menu{
         },
         Cmd{
             .name = "step",
+            .alt = &.{"s"},
             .params = &.{Param{
                 .name = "count",
                 .optional = true,

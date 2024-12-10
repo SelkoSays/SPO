@@ -65,9 +65,10 @@ pub fn init(alloc: Allocator) !void {
     runner.watch_list = w_list;
 
     runner.M = Machine.init(@ptrCast(buf), devs, u_buf, alloc);
-    runner.M.devs.setDevice(0, .{ .file = std.io.getStdIn(), .closable = false });
-    runner.M.devs.setDevice(1, .{ .file = std.io.getStdOut(), .closable = false });
-    runner.M.devs.setDevice(2, .{ .file = std.io.getStdErr(), .closable = false });
+
+    runner.M.devs.setDevice(0, Device.init(std.io.getStdIn(), "", false));
+    runner.M.devs.setDevice(1, Device.init(std.io.getStdOut(), "", false));
+    runner.M.devs.setDevice(2, Device.init(std.io.getStdErr(), "", false));
 }
 
 pub fn deinit(alloc: Allocator) void {

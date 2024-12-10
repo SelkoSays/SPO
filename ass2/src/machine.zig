@@ -323,12 +323,12 @@ pub const Machine = struct {
         }
 
         var bb = std.fmt.bufPrint(instruction_str_buf[buf.len..], " {s}{s:<5}    ", .{
-            if (e > 0) "+" else "",
+            if (e > 0) "+" else " ",
             @tagName(opcode),
         }) catch return null;
         buf.len += bb.len;
 
-        if (ins_sz == 2) {
+        if (ins_sz == 1) {} else if (ins_sz == 2) {
             bb = std.fmt.bufPrint(instruction_str_buf[buf.len..], "{s}, {s}", .{
                 @tagName(reg1(bytes[2])),
                 @tagName(reg2(bytes[2])),
@@ -413,7 +413,7 @@ pub const Machine = struct {
                     self.mem.setSlice(t.addr, t.code);
                 },
                 .M => |m| {
-                    const addr = m.addr;
+                    const addr = m.addr + code.start_addr;
                     const nibble_len = m.len;
                     const byte_len = (nibble_len + 1) / 2;
                     const slice = &self.mem.buf[addr .. addr + byte_len];
@@ -502,6 +502,7 @@ pub const Machine = struct {
 
     fn saveMem(self: *Self, addr: u24, val: type) !void {
         if (!self.use_undo) return;
+
         const states = self.undo_buf.last() orelse return;
 
         if (val == u8) {
@@ -550,8 +551,15 @@ pub const Machine = struct {
 
     pub fn step(self: *Self) !void {
         if (self.use_undo) {
-            const states = try std.ArrayListUnmanaged(undo.State).initCapacity(self.alloc, 2);
+            var states = try std.ArrayListUnmanaged(undo.State).initCapacity(self.alloc, 2);
+            errdefer states.deinit(self.alloc);
+
             self.undo_buf.add(states, self.alloc);
+            errdefer {
+                var a = self.undo_buf.popBack().?;
+                a.deinit(self.alloc);
+            }
+
             try self.saveReg(.PC);
         }
 
@@ -769,7 +777,13 @@ pub const Machine = struct {
             .RD => {
                 try self.saveReg(.A);
                 const dev_ = self.getAddr(u8, sic, false, address_mode);
-                self.regs.gpr.A = self.devs.getDevice(dev_).read();
+                const r = self.devs.getDevice(dev_).read();
+                if (r) |rr| {
+                    self.regs.gpr.A = rr;
+                } else {
+                    self.stop();
+                    self.regs.gpr.A = 0;
+                }
             },
             .WD => {
                 const dev_ = self.getAddr(u8, sic, false, address_mode);
@@ -991,7 +1005,7 @@ test "Machine.load with M record" {
     const str =
         \\Hprg   000001000011
         \\T00000111B400510000510001510002510003510004
-        \\M00000301
+        \\M00000201
         \\E000001
     ;
 
@@ -1073,4 +1087,64 @@ test "test_horner" {
     m.start();
 
     try std.testing.expectEqual(57, m.mem.get(0x12, u24));
+}
+
+test "fact" {
+    var buf = [_]u8{0} ** 1000;
+    var m = Machine.init(&buf, undefined, undefined, std.testing.allocator);
+    m.use_undo = false;
+
+    const PRG_FACT =
+        \\Hfact  000000000C2D
+        \\T0000001E4B20360100054B20033F2FFD1620604B2036290001332018290000332012
+        \\T00001E1E0E204E4B20241D00014B2FE24B202D22203F4B20270A20394F00000F2036
+        \\T00003C1E0120360F202D03202D4F00000F20270320211B201B0F201B03201B4F0000
+        \\T00005A1B0F201503200F1F20090F20090320094F0000000003000000000000
+        \\E000000
+    ;
+
+    try m.load(PRG_FACT, true);
+
+    m.start();
+
+    try std.testing.expectEqual(120, m.regs.gpr.A);
+}
+
+test "cat" {
+    var buf = [_]u8{0} ** 1000;
+
+    var devs = Machine.OSDevices{};
+
+    var m = Machine.init(&buf, &devs, undefined, std.testing.allocator);
+    m.use_undo = false;
+
+    // ```asm
+    //cat START 0
+    //
+    //loop RD #0 . stdin
+    //WD #1 . stdout
+    //J loop
+    // ```
+    const PRG_CAT =
+        \\Hcat   000000000009
+        \\T00000009D90000DD00013F2FF7
+        \\E000000
+    ;
+
+    const in: []const u8 = "123";
+
+    const out: []u8 = try std.testing.allocator.alloc(u8, 3);
+    defer std.testing.allocator.free(out);
+
+    var br = std.io.fixedBufferStream(in);
+    var bw = std.io.fixedBufferStream(out);
+
+    m.devs.setDevice(0, Device.from_rw(br.reader().any(), null));
+    m.devs.setDevice(1, Device.from_rw(null, bw.writer().any()));
+
+    try m.load(PRG_CAT, true);
+
+    m.start();
+
+    try std.testing.expectEqualSlices(u8, in, out[0..3]);
 }

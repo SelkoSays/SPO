@@ -1,9 +1,10 @@
 const std = @import("std");
 const run = @import("runner.zig");
 const obj_r = @import("obj_reader.zig");
-// const Machine = @import("machine.zig").Machine;
+const Machine = @import("machine.zig").Machine;
+const Device = @import("device.zig").Device;
 
-pub const std_options: std.Options = .{ .log_level = .info };
+pub const std_options: std.Options = .{ .log_level = .warn };
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
