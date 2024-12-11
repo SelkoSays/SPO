@@ -160,14 +160,16 @@ fn runTui(alloc: Allocator) !void {
         const line: [*c]u8 = rl.readline(prompt);
         defer std.c.free(line);
 
-        rl.add_history(line);
-
         if (line == null) {
             continue;
         }
 
         const l = std.mem.sliceTo(line, 0);
         const sync = (l[0] == '.');
+
+        if (l.len > 0) {
+            rl.add_history(line);
+        }
 
         var args = tui.parseArgs(if (sync) l[1..] else l, alloc) catch tui.Args{};
         defer args.deinit();
