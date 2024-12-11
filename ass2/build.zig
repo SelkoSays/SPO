@@ -20,7 +20,7 @@ pub fn build(b: *std.Build) !void {
     const fmt_check = b.step("fmt-check", "Formats files in src");
 
     const exe = b.addExecutable(.{
-        .name = "ass2",
+        .name = "sicvm",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
