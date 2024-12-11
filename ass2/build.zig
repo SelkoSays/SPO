@@ -103,7 +103,7 @@ pub fn build(b: *std.Build) !void {
             .root_source_file = b.path("tools/instruction_set.zig"),
         });
         _ = addCompiledFile(b, exe_unit_tests, "result", null, "tools/result.zig");
-        _ = addCompiledFile(b, exe, "ring_buffer", null, "tools/ring_buffer.zig");
+        _ = addCompiledFile(b, exe_unit_tests, "ring_buffer", null, "tools/ring_buffer.zig");
 
         const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
