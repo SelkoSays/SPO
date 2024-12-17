@@ -32,6 +32,7 @@ pub fn build(b: *std.Build) !void {
     const is_exe_step = addCompiledFile(b, exe, "instruction_set", "tools/is_gen.zig", "tools/instruction_set.zig").?;
     _ = addCompiledFile(b, exe, "result", null, "tools/result.zig");
     _ = addCompiledFile(b, exe, "ring_buffer", null, "tools/ring_buffer.zig");
+    _ = addCompiledFile(b, exe, "helper", null, "tools/helper.zig");
 
     const check_comp = try b.allocator.create(std.Build.Step.Compile);
     check_comp.* = exe.*;
@@ -104,6 +105,7 @@ pub fn build(b: *std.Build) !void {
         });
         _ = addCompiledFile(b, exe_unit_tests, "result", null, "tools/result.zig");
         _ = addCompiledFile(b, exe_unit_tests, "ring_buffer", null, "tools/ring_buffer.zig");
+        _ = addCompiledFile(b, exe_unit_tests, "helper", null, "tools/helper.zig");
 
         const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 

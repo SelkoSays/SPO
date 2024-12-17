@@ -5,10 +5,10 @@ const rl = @cImport({
     @cInclude("readline/readline.h");
     @cInclude("readline/history.h");
 });
-const mach = @import("machine.zig");
+const mach = @import("../machine/machine.zig");
 const Machine = mach.Machine;
 
-const device = @import("device.zig");
+const device = @import("../machine/device.zig");
 const Device = device.Device;
 const Devices = device.Devices;
 
@@ -17,7 +17,7 @@ const Opcode = Is.Opcode;
 
 const tui = @import("tui.zig");
 
-const undo = @import("undo.zig");
+const undo = @import("../machine/undo.zig");
 
 const WatchList = std.AutoArrayHashMap(u24, u24); // K = address, V = size
 pub const Breakpoints = std.AutoArrayHashMap(u24, u8); // K = address, V = byte

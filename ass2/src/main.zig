@@ -1,8 +1,5 @@
 const std = @import("std");
-const run = @import("runner.zig");
-const obj_r = @import("obj_reader.zig");
-const Machine = @import("machine.zig").Machine;
-const Device = @import("device.zig").Device;
+const run = @import("runner/runner.zig");
 
 pub const std_options: std.Options = .{ .log_level = .warn };
 

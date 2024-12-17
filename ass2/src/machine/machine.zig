@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const hl = @import("helper.zig");
+const hl = @import("helper");
 const dev = @import("device.zig");
 const Device = dev.Device;
 const Devices = dev.Devices;
@@ -10,7 +10,7 @@ const Opcode = Is.Opcode;
 const Fmt = Is.Fmt;
 const obj = @import("obj_reader.zig");
 const undo = @import("undo.zig");
-const Breakpoints = @import("runner.zig").Breakpoints;
+const Breakpoints = @import("../runner/runner.zig").Breakpoints;
 
 pub const RegIdx = enum(u4) {
     A = 0x0,
