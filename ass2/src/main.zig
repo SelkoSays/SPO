@@ -1,5 +1,6 @@
 const std = @import("std");
 const run = @import("runner/runner.zig");
+const lex = @import("compiler/lexer.zig");
 
 pub const std_options: std.Options = .{ .log_level = .warn };
 
@@ -13,4 +14,7 @@ pub fn main() !void {
 
     const action = try run.parseArgs(alloc);
     try run.run(alloc, action);
+
+    var l = lex.init("abc");
+    _ = try l.next();
 }
