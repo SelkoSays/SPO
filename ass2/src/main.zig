@@ -16,5 +16,5 @@ pub fn main() !void {
     try run.run(alloc, action);
 
     var l = lex.init("abc");
-    _ = try l.next();
+    _ = l.next();
 }

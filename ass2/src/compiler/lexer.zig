@@ -21,11 +21,13 @@ const LexErr = struct {
 
 const Line = struct {
     label: ?Token = null,
-    instruction: Token,
-    args: []const Token,
+    instruction: Token = undefined,
+    args: ?[]const Token = null,
 
-    pub fn deinit(self: Line, alloc: Allocator) void {
-        alloc.free(self);
+    pub fn deinit(self: *Line, alloc: Allocator) void {
+        if (self.args) {
+            alloc.free(self.args.?);
+        }
     }
 };
 
@@ -53,6 +55,11 @@ pub fn init(str: []const u8) Self {
 pub fn next(self: *Self) Result(Line) {
     const R = Result(Line);
 
+    while (self.ch == '.') {
+        self.skipComment();
+        self.skipWhitespace();
+    }
+
     while (self.is_nl()) {
         self.line += 1;
         self.col = 0;
@@ -60,30 +67,109 @@ pub fn next(self: *Self) Result(Line) {
         _ = self.advance();
     }
 
+    if (self.ch == 0) return R.ok(Line{ .instruction = self.tEof() });
+
+    while (self.ch == '.') {
+        self.skipComment();
+        self.skipWhitespace();
+    }
+
     const ch = self.ch;
     self.start = self.cur;
 
-    if (ch == 0) return R.ok(self.tEof());
+    var line = Line{};
 
     if (self.new_line and !std.ascii.isWhitespace(ch)) {
         const id = self.identifier();
         if (id.is_err()) {
-            return id.map_ok(Line, null);
+            return id.map_ok(Line, null) catch unreachable;
         }
         self.new_line = false;
+        const lexeme = id.unwrap();
+        line.label = Token.init(
+            .Id,
+            lexeme,
+            self.curPos(self.start, @truncate(lexeme.len)),
+        );
     }
 
     self.skipWhitespace();
 
-    // Check comment
+    while (self.ch == '.') {
+        self.skipComment();
+        self.skipWhitespace();
+    }
+
     // Lex instruction
-    // Check comment
+    const instr = self.identifier();
+    if (instr.is_err()) {
+        return instr.map_ok(Line, null) catch unreachable;
+    }
+
+    const lexeme = instr.unwrap();
+    line.instruction = Token.init(
+        .Id,
+        lexeme,
+        self.curPos(self.start, @truncate(lexeme.len)),
+    );
+
+    self.skipWhitespaceUntilEOL();
+
+    if (self.ch == '.') {
+        self.skipComment();
+        return R.ok(line);
+    }
+
     // Lex args
+    const args = self.arguments();
+    if (args.is_err()) {
+        return args.map_ok(Line, null) catch unreachable;
+    }
+
+    line.args = args.unwrap();
+
+    return R.ok(line);
+}
+
+fn skipComment(self: *Self) void {
+    while ((self.ch != 0) and !self.is_nl()) {
+        _ = self.advance();
+    }
+
+    if (self.is_nl()) {
+        self.line += 1;
+    }
+    _ = self.advance();
+    self.new_line = true;
+    return;
+}
+
+fn arguments(self: *Self) Result(?[]Token) {
+    const R = Result(?[]Token);
+
+    var ch = self.ch;
+
+    while (ch != 0 and ch != '\n') {
+        switch (ch) {
+            ',' => {},
+            '#' => {},
+            '@' => {},
+            'a'...'z', 'A'...'Z' => {},
+            '0'...'9' => {},
+            else => {},
+        }
+
+        ch = self.advance();
+    }
+
+    return R.err(.{ .pos = self.curPos(null, null), .msg = "Testing" });
 }
 
 fn identifier(self: *Self) Result([]const u8) {
     const R = Result([]const u8);
     const ascii = std.ascii;
+
+    self.start = self.cur;
 
     var ch = self.ch;
 
@@ -104,6 +190,13 @@ fn skipWhitespace(self: *Self) void {
         if (self.is_nl()) {
             self.line += 1;
         }
+        ch = self.advance();
+    }
+}
+
+fn skipWhitespaceUntilEOL(self: *Self) void {
+    var ch = self.ch;
+    while (std.ascii.isWhitespace(ch) and !self.is_nl()) {
         ch = self.advance();
     }
 }

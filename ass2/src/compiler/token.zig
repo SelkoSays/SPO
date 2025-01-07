@@ -1,7 +1,7 @@
 /// Does not own literal
 const std = @import("std");
 
-type: TokenType,
+type: TokenType = .Eof,
 lexeme: []const u8,
 pos: Pos,
 
