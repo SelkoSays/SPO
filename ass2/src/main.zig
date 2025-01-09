@@ -9,12 +9,27 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const alloc = gpa.allocator();
 
-    try run.init(alloc);
-    defer run.deinit(alloc);
+    // try run.init(alloc);
+    // defer run.deinit(alloc);
 
-    const action = try run.parseArgs(alloc);
-    try run.run(alloc, action);
+    // const action = try run.parseArgs(alloc);
+    // try run.run(alloc, action);
 
-    var l = lex.init("abc");
-    _ = l.next();
+    const prog =
+        \\abc lda x    ,  l   .hello
+        \\aa . Jojojojoj
+        \\  lda  x ,y . ok
+        \\  rsub
+        \\. Konec
+        \\ . Konec
+    ;
+    var l = lex.init(prog, alloc);
+
+    const lines = (try l.lines()).unwrap();
+    defer lines.deinit(alloc);
+
+    for (lines.lines) |ln| {
+        ln.display();
+        std.debug.print("\n", .{});
+    }
 }

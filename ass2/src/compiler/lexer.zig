@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const Token = @import("token.zig");
 
-const result = @import("result");
+const result = @import("../../tools/result.zig");
 
 fn Result(comptime O: type) type {
     return result.Result(O, LexErr);
@@ -17,6 +17,10 @@ const LexErr = struct {
         _ = self;
         return error.LexerError;
     }
+
+    pub fn display(self: *const LexErr) void {
+        std.debug.print("Error({d},{d}): {s}\n", .{ self.pos.line, self.pos.col, self.msg });
+    }
 };
 
 const Line = struct {
@@ -24,10 +28,43 @@ const Line = struct {
     instruction: Token = undefined,
     args: ?[]const Token = null,
 
-    pub fn deinit(self: *Line, alloc: Allocator) void {
-        if (self.args) {
+    pub fn deinit(self: *const Line, alloc: Allocator) void {
+        if (self.args != null) {
             alloc.free(self.args.?);
         }
+    }
+
+    pub fn display(self: *const Line) void {
+        if (self.instruction.type == .Eof) {
+            std.debug.print(">EOF<\n", .{});
+            return;
+        }
+
+        if (self.label) |l| {
+            std.debug.print("Label: {{ .lexeme = '{s}', .type = {s}, .pos = {{ .line = {d}, .column = {d} }} }}\n", .{ l.lexeme, @tagName(l.type), l.pos.line, l.pos.col });
+        }
+
+        std.debug.print("Instrunction: '{s}'\n", .{self.instruction.lexeme});
+
+        if (self.args) |args| {
+            std.debug.print("Arguments: [", .{});
+            for (args) |a| {
+                std.debug.print(" '{s}'", .{a.lexeme});
+            }
+            std.debug.print(" ]\n", .{});
+        }
+    }
+};
+
+const Lines = struct {
+    lines: []Line,
+
+    pub fn deinit(self: *const Lines, alloc: Allocator) void {
+        for (self.lines) |*l| {
+            l.deinit(alloc);
+        }
+
+        alloc.free(self.lines);
     }
 };
 
@@ -37,13 +74,14 @@ col: u32 = 0,
 start: u32 = 0,
 cur: u32 = 0, // current index in str
 ch: u8 = 0, // current char
-new_line: bool = true,
+alloc: Allocator,
 
 const Self = @This();
 
-pub fn init(str: []const u8) Self {
+pub fn init(str: []const u8, alloc: Allocator) Self {
     var self = Self{
         .str = str,
+        .alloc = alloc,
     };
 
     _ = self.advance();
@@ -52,26 +90,66 @@ pub fn init(str: []const u8) Self {
     return self;
 }
 
-pub fn next(self: *Self) Result(Line) {
+pub fn lines(self: *Self) !Result(Lines) {
+    var liness = std.ArrayList(Line).init(self.alloc);
+    defer {
+        for (liness.items) |*l| {
+            l.deinit(self.alloc);
+        }
+        liness.deinit();
+    }
+
+    var cur_line = try self.next();
+
+    while (cur_line.is_ok() and cur_line.unwrap().instruction.type != .Eof) {
+        try liness.append(cur_line.unwrap());
+        cur_line = try self.next();
+    }
+
+    if (cur_line.is_err()) {
+        return cur_line.map_ok(Lines, null) catch unreachable;
+    }
+
+    try liness.append(cur_line.unwrap());
+
+    return Result(Lines).ok(.{ .lines = try liness.toOwnedSlice() });
+}
+
+pub fn next(self: *Self) !Result(Line) {
     const R = Result(Line);
 
+    var skipped_comment = false;
     while (self.ch == '.') {
         self.skipComment();
         self.skipWhitespace();
+        skipped_comment = true;
+    }
+
+    var c = self.str[self.cur -| 1];
+    if (skipped_comment and std.ascii.isWhitespace(c) and c != '\n') {
+        self.cur -|= 1;
+        self.ch = c;
+        skipped_comment = false;
     }
 
     while (self.is_nl()) {
         self.line += 1;
         self.col = 0;
-        self.new_line = true;
         _ = self.advance();
     }
-
-    if (self.ch == 0) return R.ok(Line{ .instruction = self.tEof() });
 
     while (self.ch == '.') {
         self.skipComment();
         self.skipWhitespace();
+        skipped_comment = true;
+    }
+
+    if (self.ch == 0) return R.ok(Line{ .instruction = self.tEof() });
+
+    c = self.str[self.cur -| 1];
+    if (skipped_comment and std.ascii.isWhitespace(c) and c != '\n') {
+        self.cur -|= 1;
+        self.ch = c;
     }
 
     const ch = self.ch;
@@ -79,12 +157,11 @@ pub fn next(self: *Self) Result(Line) {
 
     var line = Line{};
 
-    if (self.new_line and !std.ascii.isWhitespace(ch)) {
+    if (!std.ascii.isWhitespace(ch)) {
         const id = self.identifier();
         if (id.is_err()) {
             return id.map_ok(Line, null) catch unreachable;
         }
-        self.new_line = false;
         const lexeme = id.unwrap();
         line.label = Token.init(
             .Id,
@@ -113,7 +190,7 @@ pub fn next(self: *Self) Result(Line) {
         self.curPos(self.start, @truncate(lexeme.len)),
     );
 
-    self.skipWhitespaceUntilEOL();
+    _ = self.skipWhitespaceUntilEOL();
 
     if (self.ch == '.') {
         self.skipComment();
@@ -121,7 +198,7 @@ pub fn next(self: *Self) Result(Line) {
     }
 
     // Lex args
-    const args = self.arguments();
+    const args = try self.arguments();
     if (args.is_err()) {
         return args.map_ok(Line, null) catch unreachable;
     }
@@ -140,29 +217,68 @@ fn skipComment(self: *Self) void {
         self.line += 1;
     }
     _ = self.advance();
-    self.new_line = true;
     return;
 }
 
-fn arguments(self: *Self) Result(?[]Token) {
-    const R = Result(?[]Token);
+fn arguments(self: *Self) !Result([]Token) {
+    const R = Result([]Token);
+
+    var args = std.ArrayList(Token).init(self.alloc);
+    defer args.deinit();
 
     var ch = self.ch;
 
     while (ch != 0 and ch != '\n') {
+        self.start = self.cur;
+
+        var any_skipped = false;
         switch (ch) {
-            ',' => {},
-            '#' => {},
-            '@' => {},
-            'a'...'z', 'A'...'Z' => {},
-            '0'...'9' => {},
-            else => {},
+            ',' => {
+                try args.append(Token.init(.Comma, ",", self.curPos(null, null)));
+                ch = self.advance();
+                any_skipped = self.skipWhitespaceUntilEOL();
+                if (!any_skipped) self.cur -|= 1;
+            },
+            '#' => {
+                try args.append(Token.init(.Hash, "#", self.curPos(null, null)));
+            },
+            '@' => {
+                try args.append(Token.init(.At, "@", self.curPos(null, null)));
+            },
+            'a'...'z', 'A'...'Z' => {
+                const id = self.identifier();
+                if (id.is_err()) {
+                    return id.map_ok([]Token, null) catch unreachable;
+                }
+                const name = id.unwrap();
+                try args.append(Token.init(.Id, name, self.curPos(self.start, @truncate(name.len))));
+                any_skipped = self.skipWhitespaceUntilEOL();
+            },
+            '0'...'9' => {
+                const num = self.number();
+                if (num.is_err()) {
+                    return num.map_ok([]Token, null) catch unreachable;
+                }
+                const name = num.unwrap();
+                try args.append(Token.init(.Num, name, self.curPos(self.start, @truncate(name.len))));
+                any_skipped = self.skipWhitespaceUntilEOL();
+            },
+            '.' => {
+                break;
+            },
+            else => {
+                return R.err(.{ .pos = self.curPos(null, null), .msg = "Unknown symbol for argument" });
+            },
         }
 
-        ch = self.advance();
+        if (!any_skipped) {
+            ch = self.advance();
+        } else {
+            ch = self.ch;
+        }
     }
 
-    return R.err(.{ .pos = self.curPos(null, null), .msg = "Testing" });
+    return R.ok(try args.toOwnedSlice());
 }
 
 fn identifier(self: *Self) Result([]const u8) {
@@ -174,14 +290,67 @@ fn identifier(self: *Self) Result([]const u8) {
     var ch = self.ch;
 
     if (!ascii.isAlphabetic(ch)) {
-        return R.err(.{ .pos = self.curPos(null, null), .msg = "Label should start with a alphabetic character" });
+        return R.err(.{ .pos = self.curPos(null, null), .msg = "Label should start with an alphabetic character" });
     }
 
     while (ascii.isAlphanumeric(ch)) {
         ch = self.advance();
     }
 
+    if (ch == 0) {
+        self.cur += 1;
+    }
+
     return R.ok(self.str[self.start..self.cur]);
+}
+
+fn number(self: *Self) Result([]const u8) {
+    const R = Result([]const u8);
+    const ascii = std.ascii;
+
+    self.start = self.cur;
+
+    var ch = self.ch;
+
+    if (!ascii.isDigit(ch)) {
+        return R.err(.{ .pos = self.curPos(null, null), .msg = "Number should start with a digit" });
+    }
+
+    var base: u8 = 10;
+
+    if (ch == '0') {
+        ch = self.advance();
+        if (ch == 'x') {
+            base = 16;
+            ch = self.advance();
+        } else if (ch == 'b') {
+            base = 2;
+            ch = self.advance();
+        } else if (ascii.isDigit(ch)) {
+            return R.err(.{ .pos = self.curPos(null, null), .msg = "Number not equal to 0 should not start with zero" });
+        }
+    }
+
+    while (digitInBase(ch, base)) {
+        ch = self.advance();
+    }
+
+    if (ch == 0) {
+        self.cur += 1;
+    }
+
+    return R.ok(self.str[self.start..self.cur]);
+}
+
+fn digitInBase(digit: u8, base: u8) bool {
+    if (std.ascii.isDigit(digit)) {
+        return (digit - '0') < base;
+    } else if (std.ascii.isAlphabetic(digit)) {
+        const d = std.ascii.toUpper(digit);
+        return (d - 'A' + 10) < base;
+    }
+
+    return false;
 }
 
 fn skipWhitespace(self: *Self) void {
@@ -194,15 +363,21 @@ fn skipWhitespace(self: *Self) void {
     }
 }
 
-fn skipWhitespaceUntilEOL(self: *Self) void {
+fn skipWhitespaceUntilEOL(self: *Self) bool {
     var ch = self.ch;
+    var any_skip = false;
     while (std.ascii.isWhitespace(ch) and !self.is_nl()) {
         ch = self.advance();
+        any_skip = true;
     }
+    return any_skip;
 }
 
 fn advance(self: *Self) u8 {
-    if (self.cur + 1 >= self.str.len) return 0;
+    if (self.cur + 1 >= self.str.len) {
+        self.ch = 0;
+        return 0;
+    }
     self.cur += 1;
     self.ch = self.str[self.cur];
     self.col += 1;
