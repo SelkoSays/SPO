@@ -19,7 +19,7 @@ const LexErr = struct {
     }
 
     pub fn display(self: *const LexErr) void {
-        std.debug.print("Error({d},{d}): {s}\n", .{ self.pos.line, self.pos.col, self.msg });
+        std.debug.print("Error({d}): {s}\n", .{ self.pos.line, self.msg });
     }
 };
 
@@ -41,7 +41,7 @@ const Line = struct {
         }
 
         if (self.label) |l| {
-            std.debug.print("Label: {{ .lexeme = '{s}', .type = {s}, .pos = {{ .line = {d}, .column = {d} }} }}\n", .{ l.lexeme, @tagName(l.type), l.pos.line, l.pos.col });
+            std.debug.print("Label: {{ .lexeme = '{s}', .type = {s}, .pos = {{ .line = {d}, .start = {d} }} }}\n", .{ l.lexeme, @tagName(l.type), l.pos.line, l.pos.start });
         }
 
         std.debug.print("Instrunction: '{s}'\n", .{self.instruction.lexeme});
@@ -70,7 +70,6 @@ const Lines = struct {
 
 str: []const u8,
 line: u32 = 0, // current line
-col: u32 = 0,
 start: u32 = 0,
 cur: u32 = 0, // current index in str
 ch: u8 = 0, // current char
@@ -134,7 +133,6 @@ pub fn next(self: *Self) !Result(Line) {
 
     while (self.is_nl()) {
         self.line += 1;
-        self.col = 0;
         _ = self.advance();
     }
 
@@ -253,6 +251,9 @@ fn arguments(self: *Self) !Result([]Token) {
                 const name = id.unwrap();
                 try args.append(Token.init(.Id, name, self.curPos(self.start, @truncate(name.len))));
                 any_skipped = self.skipWhitespaceUntilEOL();
+                if (!any_skipped) {
+                    self.cur -|= 1;
+                }
             },
             '0'...'9' => {
                 const num = self.number();
@@ -262,6 +263,9 @@ fn arguments(self: *Self) !Result([]Token) {
                 const name = num.unwrap();
                 try args.append(Token.init(.Num, name, self.curPos(self.start, @truncate(name.len))));
                 any_skipped = self.skipWhitespaceUntilEOL();
+                if (!any_skipped) {
+                    self.cur -|= 1;
+                }
             },
             '.' => {
                 break;
@@ -380,7 +384,6 @@ fn advance(self: *Self) u8 {
     }
     self.cur += 1;
     self.ch = self.str[self.cur];
-    self.col += 1;
 
     return self.ch;
 }
@@ -389,14 +392,56 @@ fn is_nl(self: *const Self) bool {
     return self.ch == '\n';
 }
 fn tEof(self: *const Self) Token {
-    return Token{ .lexeme = "EOF", .pos = self.curPos(self.cur, 0) };
+    return Token{ .lexeme = "EOF", .pos = self.curPos(null, 0) };
 }
 
 fn curPos(self: *const Self, start: ?u32, len: ?u32) Token.Pos {
     return Token.Pos{
         .line = self.line,
-        .col = self.col,
         .start = start orelse self.cur,
         .len = len orelse 1,
     };
+}
+
+test "test_lexer" {
+    const prog =
+        \\abc lda x    ,  l   .hello
+        \\aa . Jojojojoj
+        \\  lda  @x,y, 123 . ok
+        \\  rsub
+        \\. Konec
+        \\ . Konec
+    ;
+    var l = init(prog, std.testing.allocator);
+
+    const lines_ = (try l.lines()).unwrap();
+    defer lines_.deinit(std.testing.allocator);
+
+    // lines_.lines[0].display();
+
+    try std.testing.expectEqualDeep(Line{
+        .label = Token{
+            .type = .Id,
+            .lexeme = "abc",
+            .pos = Token.Pos{
+                .line = 0,
+                .len = 3,
+                .start = 0,
+            },
+        },
+        .instruction = Token{
+            .type = .Id,
+            .lexeme = "lda",
+            .pos = Token.Pos{
+                .line = 0,
+                .len = 3,
+                .start = 4,
+            },
+        },
+        .args = &.{
+            Token.init(.Id, "x", Token.Pos{ .line = 0, .len = 1, .start = 8 }),
+            Token.init(.Comma, ",", Token.Pos{ .line = 0, .len = 1, .start = 13 }),
+            Token.init(.Id, "l", Token.Pos{ .line = 0, .len = 1, .start = 16 }),
+        },
+    }, lines_.lines[0]);
 }

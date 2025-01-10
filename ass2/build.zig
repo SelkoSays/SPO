@@ -83,11 +83,12 @@ pub fn build(b: *std.Build) !void {
     run_step.dependOn(&run_cmd.step);
 
     const test_files = .{
-        "src/machine.zig",
+        "src/machine/machine.zig",
         "src/main.zig",
-        "src/device.zig",
-        "src/obj_reader.zig",
-        "src/helper.zig",
+        "src/machine/device.zig",
+        "src/machine/obj_reader.zig",
+        "tools/helper.zig",
+        "src/compiler/lexer.zig",
     };
 
     const test_step = b.step("test", "Run unit tests");

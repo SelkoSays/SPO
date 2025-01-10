@@ -17,7 +17,6 @@ pub const TokenType = enum {
 
 pub const Pos = struct {
     line: u32,
-    col: u32,
     start: u32, // position in string
     len: u32,
 };

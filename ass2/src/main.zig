@@ -18,7 +18,7 @@ pub fn main() !void {
     const prog =
         \\abc lda x    ,  l   .hello
         \\aa . Jojojojoj
-        \\  lda  x ,y . ok
+        \\  lda  @x,y, 123 . ok
         \\  rsub
         \\. Konec
         \\ . Konec
