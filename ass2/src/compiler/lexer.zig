@@ -56,7 +56,7 @@ const Line = struct {
     }
 };
 
-const Lines = struct {
+pub const Lines = struct {
     lines: []Line,
 
     pub fn deinit(self: *const Lines, alloc: Allocator) void {

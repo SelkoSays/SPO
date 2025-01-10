@@ -1,6 +1,7 @@
 const std = @import("std");
 const run = @import("runner/runner.zig");
 const lex = @import("compiler/lexer.zig");
+const par = @import("compiler/parser.zig");
 
 pub const std_options: std.Options = .{ .log_level = .warn };
 
@@ -23,13 +24,14 @@ pub fn main() !void {
         \\. Konec
         \\ . Konec
     ;
-    var l = lex.init(prog, alloc);
+    const l = lex.init(prog, alloc);
+    const p = try par.Parser.init(l);
+    p.deinit();
+    // const lines = (try l.lines()).unwrap();
+    // defer lines.deinit(alloc);
 
-    const lines = (try l.lines()).unwrap();
-    defer lines.deinit(alloc);
-
-    for (lines.lines) |ln| {
-        ln.display();
-        std.debug.print("\n", .{});
-    }
+    // for (lines.lines) |ln| {
+    //     ln.display();
+    //     std.debug.print("\n", .{});
+    // }
 }
