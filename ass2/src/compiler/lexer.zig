@@ -23,7 +23,7 @@ const LexErr = struct {
     }
 };
 
-const Line = struct {
+pub const Line = struct {
     label: ?Token = null,
     instruction: Token = undefined,
     args: ?[]const Token = null,

@@ -307,7 +307,7 @@ pub const Machine = struct {
 
     pub const OSDevices = Devices(256);
 
-    const AddrMode = enum(u2) {
+    pub const AddrMode = enum(u2) {
         None = 0b00,
         Immediate = 0b01,
         Normal = 0b10,
