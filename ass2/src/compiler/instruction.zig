@@ -9,7 +9,7 @@ const RegSet = mac.RegIdx;
 const AddrMode = mac.Machine.AddrMode;
 
 pub const Instruction = struct {
-    kind: enum { Start, End, Byte, Word, Equ, Normal } = .Normal,
+    kind: enum { Start, End, Byte, Word, Equ, Org, Base, NoBase, Normal } = .Normal,
     loc: u32 = 0,
     opcode: Opcode = undefined,
     sic: bool = false,

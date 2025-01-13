@@ -157,6 +157,7 @@ pub const Parser = struct {
 
     fn ex_get_num_from_args(line: *const Lexer.Line, idx: usize) !?Expr {
         if (line.args != null and line.args.?.len > idx) {
+            if (line.args.?[idx].type != .Num) return null;
             return Expr{
                 .num = try std.fmt.parseInt(u24, line.args.?[idx].lexeme, 0),
             };
@@ -166,6 +167,7 @@ pub const Parser = struct {
 
     fn ex_get_sym_from_args(line: *const Lexer.Line, idx: usize) ?Expr {
         if (line.args != null and line.args.?.len > idx) {
+            if (line.args.?[idx].type != .Id) return null;
             return Expr{
                 .sym = line.args.?[idx].lexeme,
             };
@@ -175,6 +177,7 @@ pub const Parser = struct {
 
     fn ex_get_sym_from_label(line: *const Lexer.Line) ?Expr {
         if (line.label) |l| {
+            if (l.type != .Id) return null;
             return Expr{
                 .sym = l.lexeme,
             };
@@ -266,8 +269,9 @@ pub const Parser = struct {
         const e = try self.sym_tab.getOrPut(sym);
 
         if (e.found_existing and e.value_ptr.* != null) {
-            inst.arg1 = e.value_ptr.*.?;
+            inst.arg1 = Expr{ .num = e.value_ptr.*.? };
         } else {
+            inst.arg1 = Expr{ .sym = sym };
             e.value_ptr.* = null;
         }
     }
@@ -318,21 +322,20 @@ pub const Parser = struct {
         const args = self.cur_line.args orelse return error.OrgExpectsAnArgument;
         if (args.len == 0) return error.OrgExpectsAnArgument;
 
-        _ = inst;
-
         const num = try ex_get_num_from_args(self.cur_line, 0) orelse return error.OrgExpectsANumberArgument;
 
         self.ls = num.num;
+        inst.kind = .Org;
     }
 
     fn parse_base(self: *Self, inst: *Inst) anyerror!void {
-        _ = self;
-        _ = inst;
+        inst.kind = .Base;
+        self.base = true;
     }
 
     fn parse_nobase(self: *Self, inst: *Inst) anyerror!void {
-        _ = self;
-        _ = inst;
+        inst.kind = .NoBase;
+        self.base = false;
     }
 
     fn parse_byte(self: *Self, inst: *Inst) anyerror!void {
