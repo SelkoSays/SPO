@@ -1,2 +1,8 @@
 .zig-cache
 zig-out
+*.log
+*.aux
+*.fdb_latexmk
+*.fls
+*.out
+*.pyg

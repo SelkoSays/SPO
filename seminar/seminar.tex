@@ -1,0 +1,99 @@
+\documentclass[a4paper,notitlepage]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{minted}
+\usepackage{cite}
+\usepackage{svg}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{hyphenat}
+\usepackage[slovene]{babel}
+\usepackage{titling}
+\usepackage{tikz}
+\usepackage{fvextra}
+\usepackage{dirtree}
+
+\DefineVerbatimEnvironment{mateusz}
+  {Verbatim}
+  {fontfamily=\rmdefault,breaklines,breaksymbolleft={}}
+% tlmgr install transparent titling svg upquote minted latexindent hyphenat dirtree
+\tikzset{%
+    baseline,
+    inner sep=2pt,
+    minimum height=12pt,
+    rounded corners=2pt
+}
+\newcommand{\inline}[1]{\mbox{% added this percent
+        \ttfamily
+        \tikz \node[anchor=base,fill=black!12]{#1};% added this percent
+    }}
+\newcommand{\code}[1]{\mintinline[breaklines]{c}{#1}}
+
+\hbadness=500000
+\tolerance=10000
+
+\usemintedstyle{sas}
+
+
+\author{Jan Mrak \\
+    \small Fakulteta za računalništvo in informatiko, Univerza v Ljubljani}
+\title{Razhroščevalnik\\
+    \small Seminarska naloga pri predmetu Sistemska programska oprema
+    \\
+    \small Mentor: doc. Tomaž Dobravec}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+	Predstavitev implementacije in delovanja rezhroščevalnika na različnih platformah in za različne jezike.
+\end{abstract}
+
+\section{Uvod}
+
+Razhroščevalnik je program, ki nam omogoča testiranje in upravljanje nekega drugega programa. Omogoča nam branje in pisanje spomina in registrov, poljubno ustavljanje programa, izvajanje po vrsticah ali ukazih in drugo.
+Poznamo različne razhroščevalnike, kot so GDB, LLDB, x64dbg, \ldots
+
+\section{Razhroščevalnik na sistemu Linux}
+
+Na Unix in Unix-like sistemih je priskrbljen sistemski klic
+\begin{minted}{c}
+    long ptrace(enum __ptrace_request op, pid_t pid, void *addr, void *data);    
+\end{minted}
+, ki nam omogoča, da lahko dostopamo do prcesa podanega s \code{pid}. Da pa bo sistemski klic uspel, mora proces, do katerega želimo dostopati, dovoliti dostop do njega.
+To pa lahko naredi s klicem sistemske funkcije \code{ptrace}:
+\begin{minted}{c}
+    // pid, addr in data argumenti so ignorirani
+    ptrace(PTRACE_TRACEME, 0, NULL, NULL);
+\end{minted}
+
+Po tem bo razhroščevalnik lahko dostopal do tega procesa.
+
+Razhroščevalnik lahko sam ustvari proces, ki potem pokliče \code{ptrace} z argumentom \code{PTRACE_TRACEME},
+
+\begin{minted}{c}
+    int pid = fork();
+    if (pid == 0) {
+        ptrace(PTRACE_TRACEME, 0, NULL, NULL);
+        execve(...);
+    }
+\end{minted}
+
+lahko pa se priklopi na nek obstoječi proces z uporabo \code{PTRACE_ATTACH}, ki pošlje signal \code{SIGSTOP}, da se proces ustavi, ali pa \code{PTRACE_SEIZE}, ki ne ustavi procesa.
+
+\begin{minted}{c}
+    ptrace(PTRACE_ATTACH, pid, NULL, NULL);
+    // ali
+    ptrace(PTRACE_SEIZE, pid, NULL, PTRACE_O_flags);
+\end{minted}
+
+
+\section{Razhroščevalnik na sistemu Windows}
+
+
+\section{Razhroščevalnik za jezik Java / Python ?}
+
+
+\end{document}
