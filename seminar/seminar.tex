@@ -54,15 +54,15 @@
 \section{Uvod}
 
 Razhroščevalnik je program, ki nam omogoča testiranje in upravljanje nekega drugega programa. Omogoča nam branje in pisanje spomina in registrov, poljubno ustavljanje programa, izvajanje po vrsticah ali ukazih in drugo.
-Poznamo različne razhroščevalnike, kot so \href{https://www.sourceware.org/gdb/}{GDB}, \href{https://lldb.llvm.org/}{LLDB}, \href{https://x64dbg.com/}{x64dbg}, ki so bolj generalni. Obstajajo pa tudi drugačni razhroščecalniki, kot je Valgrind, ki nam omogoča pregled nad pomnilnikom procesa in recimo zaznava uhajanje spomina (angl. memory leak).
+Poznamo različne razhroščevalnike, kot so \href{https://www.sourceware.org/gdb/}{GDB}, \href{https://lldb.llvm.org/}{LLDB}, \href{https://x64dbg.com/}{x64dbg}, ki so bolj generalni. Obstajajo pa tudi drugačni razhroščevalniki, kot je Valgrind, ki nam omogoča pregled nad pomnilnikom procesa in recimo zaznava uhajanje spomina (angl. memory leak).
 
 \section{Razhroščevalnik na sistemu Linux}
 
-Na Unix in Unix-like sistemih je ponujen sistemski klic
+Na Unix in Unix-like sistemih je ponujen sistemski klic,
 \begin{minted}{c}
     long ptrace(enum __ptrace_request op, pid_t pid, void *addr, void *data);    
 \end{minted}
-, ki nam omogoča, da lahko dostopamo do prcesa podanega s \code{pid}. Da pa bo sistemski klic uspel, mora proces, do katerega želimo dostopati, dovoliti dostop do njega.
+ki nam omogoča, da lahko dostopamo do prcesa podanega s \code{pid}. Da pa bo sistemski klic uspel, mora proces, do katerega želimo dostopati, dovoliti dostop do njega.
 To pa lahko naredi s klicem sistemske funkcije \code{ptrace}:
 \begin{minted}{c}
     // pid, addr in data argumenti so ignorirani
@@ -181,7 +181,16 @@ Datoteka vsebuje:
 
 Eden najpomembnejših tokov je \href{https://llvm.org/docs/PDB/DbiStream.html}{\code{DBI}} tok, ker vsebuje podatke o tem, kako se je program prevedel, objektnih datotekah, ki so bile uporabljene pri povezovanju, izvorne datoteke, in pa tudi reference na druge tokove, ki posedujejo več podrobnosti o zbranih (angl. compiled) datotekah. Na primer \code{CodeView} simbolni zapisi.
 
-\section{Razhroščevalnik za jezik Java / Python ?}
+\section{Zanimivosti}
+
+Ena od bolj uporabnih pripomočkov pri razhroščevalnikih je uporaba prelomnih točk, ki jih razhroščevalnik ustvari tako, da zamenja en ukaz oziroma en del ukaza s posebnim ukazom, ki je na arhitekturi \code{x86} imenovan \code{int3}, na arhitekturi \code{arm} pa 
+\code{trap}. Ta poseben ukaz sproži izjemo/past, tako da razhroščevalnik nazaj dobi vajeti nad procesom.
+
+Nekateri razhroščevalniki, kot je na primer \href{https://rr-project.org/}{\code{rr}}, nam dovolijo, da posnamemo izvajanje programa, ki ga potem lahko predvajamo/izvajamo deterministično kolikorkrat si želimo.
+
+\section{Zaključek}
+
+
 
 \nocite{*} % show all sources
 \bibliographystyle{plain}
