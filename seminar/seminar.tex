@@ -54,7 +54,7 @@
 \section{Uvod}
 
 Razhroščevalnik je program, ki nam omogoča testiranje in upravljanje nekega drugega programa. Omogoča nam branje in pisanje spomina in registrov, poljubno ustavljanje programa, izvajanje po vrsticah ali ukazih in drugo.
-Poznamo različne razhroščevalnike, kot so GDB, LLDB, x64dbg, ki so bolj generalni. Obstajajo pa tudi drugačni razhroščecalniki, kot je Valgrind, ki nam omogoča pregled nad pomnilnikom procesa in recimo zaznava uhajanje spomina (angl. memory leak).
+Poznamo različne razhroščevalnike, kot so \href{https://www.sourceware.org/gdb/}{GDB}, \href{https://lldb.llvm.org/}{LLDB}, \href{https://x64dbg.com/}{x64dbg}, ki so bolj generalni. Obstajajo pa tudi drugačni razhroščecalniki, kot je Valgrind, ki nam omogoča pregled nad pomnilnikom procesa in recimo zaznava uhajanje spomina (angl. memory leak).
 
 \section{Razhroščevalnik na sistemu Linux}
 
@@ -118,6 +118,7 @@ Obstaja še veliko drugih možnosti za delo s procesom, ki pa so razložene v pr
 Razhroščevalnik nam ponavadi ponujajo tudi neke dodatne možnosti in olajšave pri razhroščevanju programa, ki pa so omogočene kadar imamo na voljo informacije o programu oz, razhroščevalne informacije (angl. debug information).
 Te možnosti so lahko, premikanje po vrsticah kode, namesto samo po ukazih, razstava (angl. disassembly) ukazov in drugo.
 To pa nas pripelje do datotečnega formata razhroščevalnih informacij \code{DWARF} (Debugging With Arbitrary Record Formats)\cite{dwarf-web-page}, ki je široko uporabljen na Unix, Linux in drugih operacijskih sistemih.
+Delo s temi datotekami/zapisi je občasno lahko mučno, zato že obstajajo knjižnice, ki nam pomagajo pri obdelavi tega formata (npr. \code{libdwarf}\cite{libdwarf}).
 
 DWARF uporablja vnose razhroščevalnik informacij (angl. Debugging Information Entry ozirom \code{DIE}) za definicijo nizko nivojskie predstavitve izvornega programa.
 Vsak vpis je sestavljen iz identifikacijske oznake in nizem atributov. Oznaka nam pove, kateremu razredu pripada ta vpis, atributi pa opisujejo latnosti tega vpisa.
@@ -160,9 +161,25 @@ Microsoft Windows tudi ponuja razhroščevanli vmesnik, imenovan \code{debugapi}
 
 Ostale funkcionalnosti pa ponuja tudi \code{Win32} API\cite{win32-api}. Med njimi tudi \code{Memoryapi}\cite{win32-memapi}, ki nam omogoča dostop do pomnilnika procesa.
 
-Delovanje in implementacija razhroščevalnika, je podobma tej s \code{ptrace}, vendar ta bi delovala le na operacijskem sistemu Windows.
+Delovanje razhroščevalnika je omejeno na operacijski sistem Windows. Implementacija pa se ne razlikuje preveč od implementacije na sistemih Unix, vendar je mogoče malo bolj zakomplicirana.
 
 \subsection{PDB}
+
+\code{PDB}\cite{llvm-pdb}(Program Database) datotečni format je bil izumljen s strani podjetja Microsoft. Datoteke vsebujejo razhroščevalne informacije, ki jih lahko uporabljajo razhroščevalniki in druga orodja.
+Microsoft ponuja vmesnike in orodja za delo s temi datotekami, kar pomaga uporabnikom, da ne potrebujejo vedeti celotne zgradbe teh datotek.
+Vendar je občasno dobro vedeti, kako je ta datoteka sestavljena, zato bomo pogledali nekaj malenkosti o tem formatu.
+
+\code{PDB} datoteka je oblike MSF (Multi-Stream Format), in MSF je ``datotečni sistem znotraj datoteke''. Datoteka vsebuje več različnih tokov (angl. stream), ki opisujejo različne informacije, kot so tipi, simboli, izvorne datoteke, \ldots
+
+Datoteka vsebuje:
+\begin{itemize}
+    \item \code{Old Directory} -  prejšnji MSF točni imenik (angl. stream directory)
+    \item \code{PDB tok} - osnovne informacije, \ldots
+    \item \code{DBI tok} - rezhroščevalne informacije
+    \item \ldots
+\end{itemize}
+
+Eden najpomembnejših tokov je \href{https://llvm.org/docs/PDB/DbiStream.html}{\code{DBI}} tok, ker vsebuje podatke o tem, kako se je program prevedel, objektnih datotekah, ki so bile uporabljene pri povezovanju, izvorne datoteke, in pa tudi reference na druge tokove, ki posedujejo več podrobnosti o zbranih (angl. compiled) datotekah. Na primer \code{CodeView} simbolni zapisi.
 
 \section{Razhroščevalnik za jezik Java / Python ?}
 
