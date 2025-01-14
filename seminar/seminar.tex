@@ -22,10 +22,7 @@
     minimum height=12pt,
     rounded corners=2pt
 }
-\newcommand{\inline}[1]{\mbox{% added this percent
-        \ttfamily
-        \tikz \node[anchor=base,fill=black!12]{#1};% added this percent
-    }}
+
 \newcommand{\code}[1]{\mintinline[breaklines]{c}{#1}}
 
 \hbadness=500000
@@ -48,7 +45,7 @@
 \thispagestyle{empty}
 
 \begin{abstract}
-	Predstavitev implementacije in delovanja rezhroščevalnika na različnih platformah in za različne jezike.
+	Predstavitev implementacije in delovanja rezhroščevalnika na različnih sistemih, ter kratek opis \code{DWARF} in \code{PDB} formatov za razhroščevalne informacije.
 \end{abstract}
 
 \section{Uvod}
@@ -129,8 +126,16 @@ Primeri oznak so:
     \item \code{DW_TAG_label}
     \item \code{DW_TAG_class_type}
     \item \code{DW_TAG_condition}
-    \item \code{DW_TAG_const_type}
     \item \code{DW_TAG_constant}
+\end{itemize}
+
+Primeri atributov:
+
+\begin{itemize}
+    \item \code{DW_AT_import} - Imported declaration, imported unit, namespace alias, namespace using declaration, \ldots
+    \item \code{DW_AT_inline} - Inlined subroutine
+    \item \code{DW_AT_is_optional} - Optional parameter
+    \item \code{DW_AT_language} - Programming language
 \end{itemize}
 
 Razhroščevalne informacije so predstavljene kot drevo, katerega vozlišča so \code{DIE} vpisi, tako ima lahko vsak vpis svoje otroke, kar pomeni da je trenutno vozlišče odvisno od scojih otrok.
@@ -142,7 +147,7 @@ Zapisani so kot sploščeno drevo, in sicer tako da, če vozlišče nima otrok, 
 \end{minted}
 
 \code{DIE} vpisi se ponavadi nahajajo v zaglavju izvedljive ali objektne datoteke, pod razdelkom \code{.debug_info} in/ali razdelkom \code{.debug_info.dwo}.
-Te informacije nam lahko povejo na primer, imena spremenljivk in funkcij, ali kateri ukazi se nanašajo na katero vrstico v izvorni kodi, ali kje v kodi se nahajajo vstopi v funkcije in sše veliko več.
+Te informacije nam lahko povejo na primer, imena spremenljivk in funkcij, ali kateri ukazi se nanašajo na katero vrstico v izvorni kodi, ali kje v kodi se nahajajo vstopi v funkcije in še veliko več.
 
 \section{Razhroščevalnik na sistemu Windows}
 
@@ -163,7 +168,7 @@ Ostale funkcionalnosti pa ponuja tudi \code{Win32} API\cite{win32-api}. Med njim
 
 Delovanje razhroščevalnika je omejeno na operacijski sistem Windows. Implementacija pa se ne razlikuje preveč od implementacije na sistemih Unix, vendar je mogoče malo bolj zakomplicirana.
 
-\subsection{PDB}
+\subsection{PDB format}
 
 \code{PDB}\cite{llvm-pdb} (Program Database) datotečni format je bil izumljen s strani podjetja Microsoft. Datoteke vsebujejo razhroščevalne informacije, ki jih lahko uporabljajo razhroščevalniki in druga orodja.
 Microsoft ponuja vmesnike in orodja za delo s temi datotekami, kar pomaga uporabnikom, da ne potrebujejo vedeti celotne zgradbe teh datotek.
