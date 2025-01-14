@@ -116,12 +116,53 @@ Obstaja še veliko drugih možnosti za delo s procesom, ki pa so razložene v pr
 \subsection{DWARF format}
 
 Razhroščevalnik nam ponavadi ponujajo tudi neke dodatne možnosti in olajšave pri razhroščevanju programa, ki pa so omogočene kadar imamo na voljo informacije o programu oz, razhroščevalne informacije (angl. debug information).
+Te možnosti so lahko, premikanje po vrsticah kode, namesto samo po ukazih, razstava (angl. disassembly) ukazov in drugo.
 To pa nas pripelje do datotečnega formata razhroščevalnih informacij \code{DWARF} (Debugging With Arbitrary Record Formats)\cite{dwarf-web-page}, ki je široko uporabljen na Unix, Linux in drugih operacijskih sistemih.
 
+DWARF uporablja vnose razhroščevalnik informacij (angl. Debugging Information Entry ozirom \code{DIE}) za definicijo nizko nivojskie predstavitve izvornega programa.
+Vsak vpis je sestavljen iz identifikacijske oznake in nizem atributov. Oznaka nam pove, kateremu razredu pripada ta vpis, atributi pa opisujejo latnosti tega vpisa.
 
+Primeri oznak so:
+\begin{itemize}
+    \item \code{DW_TAG_array_type}
+    \item \code{DW_TAG_label}
+    \item \code{DW_TAG_class_type}
+    \item \code{DW_TAG_condition}
+    \item \code{DW_TAG_const_type}
+    \item \code{DW_TAG_constant}
+\end{itemize}
+
+Razhroščevalne informacije so predstavljene kot drevo, katerega vozlišča so \code{DIE} vpisi, tako ima lahko vsak vpis svoje otroke, kar pomeni da je trenutno vozlišče odvisno od scojih otrok.
+Zapisani so kot sploščeno drevo, in sicer tako da, če vozlišče nima otrok, je naslednji vpis njegov sorojenec, če pa im otroke, je nasledni vpis njegov otrok. Veriga sorojencev se knoča praznim vpisom.
+
+\begin{minted}{c}
+    // recimo, da ima volišče dva otroka
+    vozlišče, otrok, otrok, null
+\end{minted}
+
+\code{DIE} vpisi se ponavadi nahajajo v zaglavju izvedljive ali objektne datoteke, pod razdelkom \code{.debug_info} in/ali razdelkom \code{.debug_info.dwo}.
+Te informacije nam lahko povejo na primer, imena spremenljivk in funkcij, ali kateri ukazi se nanašajo na katero vrstico v izvorni kodi, ali kje v kodi se nahajajo vstopi v funkcije in sše veliko več.
 
 \section{Razhroščevalnik na sistemu Windows}
 
+Microsoft Windows tudi ponuja razhroščevanli vmesnik, imenovan \code{debugapi}\cite{win32-debugapi}, le ta pa nam podaja nekaj funkcij za uporabo.
+
+\begin{itemize}
+    \item \code{CheckRemoteDebuggerPresent} programu pove, ali je v teku razhroščevanje nad podanim procesom
+    \item \code{ContinueDebugEvent} nadaljuje izvajanje procesa
+    \item \code{DebugActiveProcess} omogoči razhroščevalniku, da se priklopi na aktiven preces
+    \item \code{DebugActiveProcessStop} ustavi razhroščevanje procesa
+    \item \code{DebugBreak} ustavi izvajanje procesa
+    \item \code{IsDebuggerPresent} preveri, ali razhroščevalnik (v uporabniškem načinu) opravlja trenutni proces
+    \item \code{WaitForDebugEvent} ali \code{WaitForDebugEventEx} počaka, da se zgodi razhroščevalni dogodek v razhroščevanem procesu
+    \item \ldots
+\end{itemize}
+
+Ostale funkcionalnosti pa ponuja tudi \code{Win32} API\cite{win32-api}. Med njimi tudi \code{Memoryapi}\cite{win32-memapi}, ki nam omogoča dostop do pomnilnika procesa.
+
+Delovanje in implementacija razhroščevalnika, je podobma tej s \code{ptrace}, vendar ta bi delovala le na operacijskem sistemu Windows.
+
+\subsection{PDB}
 
 \section{Razhroščevalnik za jezik Java / Python ?}
 
