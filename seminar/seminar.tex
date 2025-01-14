@@ -54,11 +54,11 @@
 \section{Uvod}
 
 Razhroščevalnik je program, ki nam omogoča testiranje in upravljanje nekega drugega programa. Omogoča nam branje in pisanje spomina in registrov, poljubno ustavljanje programa, izvajanje po vrsticah ali ukazih in drugo.
-Poznamo različne razhroščevalnike, kot so GDB, LLDB, x64dbg, \ldots
+Poznamo različne razhroščevalnike, kot so GDB, LLDB, x64dbg, ki so bolj generalni. Obstajajo pa tudi drugačni razhroščecalniki, kot je Valgrind, ki nam omogoča pregled nad pomnilnikom procesa in recimo zaznava uhajanje spomina (angl. memory leak).
 
 \section{Razhroščevalnik na sistemu Linux}
 
-Na Unix in Unix-like sistemih je priskrbljen sistemski klic
+Na Unix in Unix-like sistemih je ponujen sistemski klic
 \begin{minted}{c}
     long ptrace(enum __ptrace_request op, pid_t pid, void *addr, void *data);    
 \end{minted}
@@ -89,11 +89,39 @@ lahko pa se priklopi na nek obstoječi proces z uporabo \code{PTRACE_ATTACH}, ki
     ptrace(PTRACE_SEIZE, pid, NULL, PTRACE_O_flags);
 \end{minted}
 
+Če želimo ustaviti proces, ga lahko ustavimo kadarkoli s klicem \code{ptrace} in za argument \code{op} izberemo \code{PTRACE_INTERRUPT}.
+Ko pa proces ustavimo, imamo na voljo veliko različnih možnosti za upravljanje s procesom.
+
+Možnosti za pridobivanje in upravljanje z informacijami:
+\begin{itemize}
+    \item \code{PTRACE_PEEKDATA} ali \code{PTRACE_PEEKTEXT}, ki nam omogočata, da beremo iz procesovega spomina
+    \item \code{PTRACE_POKEDATA} ali \code{PTRACE_POKETEXT}, ki nam omogočata, da pišemo v spomin procesa
+    \item \code{PTRACE_GETREGS} ali \code{PTRACE_GETFREGS}, ki nam omogočata, da preberemo splošno namenske registre ali registre za delanje s plavajočo vejico
+    \item \code{PTRACE_SETREGS} ali \code{PTRACE_SETFREGS}, podobno kot pri prejšnjem primeru, dobimo dostop do registrov in v njih lahko zapišemo vrednosti
+    \item \code{PTRACE_GETSIGINFO}, ki pridobi informacije o signalu, ki je ustavil proces
+    \item \code{PTRACE_PEEKSIGINFO}, enako pridobi informacije o signalu, vendar ga ne vzame iz vrste signalov
+\end{itemize}
+
+Možnosti za upravljanje poteka procesa:
+\begin{itemize}
+    \item \code{PTRACE_CONT}, ki znova zažene ustavljen proces, da nadaljuje z delovanjem
+    \item \code{PTRACE_SINGLESTEP}, ki izvede le en ukaz
+    \item \code{PTRACE_SYSCALL}, ki se vede kot \code{PTRACE_CONT}, vendar se preces, ki ga razhroščijemo ustavi tik pred vstopom v sistemski klic, oziroma ob izstopu sistemskega klica
+    \item \code{PTRACE_KILL}, ki procesu pošlje signal \code{SIGKILL} in ga tako prisilno zaključi
+    \item \code{PTRACE_INTERRUPT}, ki ustavi proces
+\end{itemize}
+
+Obstaja še veliko drugih možnosti za delo s procesom, ki pa so razložene v priročniku man za ptrace\cite{ptrace-man-page}.
+
+\subsection{DWARF format}
 
 \section{Razhroščevalnik na sistemu Windows}
 
 
 \section{Razhroščevalnik za jezik Java / Python ?}
 
+\nocite{*} % show all sources
+\bibliographystyle{plain}
+\bibliography{refs}
 
 \end{document}

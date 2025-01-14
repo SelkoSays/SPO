@@ -6,3 +6,5 @@ zig-out
 *.fls
 *.out
 *.pyg
+*.bbl
+*.blg
