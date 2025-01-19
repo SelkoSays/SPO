@@ -5,9 +5,9 @@ const Lexer = @import("lexer.zig");
 const token = @import("token.zig");
 const tk = token.TokenType;
 
-const res = @import("../../tools/result.zig");
+const res = @import("result");
 
-const ISet = @import("../../tools/instruction_set.zig");
+const ISet = @import("instruction_set");
 const RegSet = @import("../machine/machine.zig").RegIdx;
 
 const I = @import("instruction.zig");
@@ -27,7 +27,7 @@ const ParseError = struct {
     }
 };
 
-const PFn = fn (*Parser, *Inst) anyerror!void;
+const PFn = *const fn (*Parser, *Inst) anyerror!void;
 
 pub const Parser = struct {
     lines: Lexer.Lines = undefined,
@@ -39,6 +39,7 @@ pub const Parser = struct {
     sym_tab: std.StringHashMap(?u32) = undefined,
 
     base: bool = false,
+    parsed_end: bool = false,
 
     reserved: std.StaticStringMap(?PFn),
 
@@ -61,21 +62,36 @@ pub const Parser = struct {
             .{ "RESW", parse_resw },
         });
 
-        return Self{
+        var p = Self{
             .lines = lines,
-            .cur_line = 0,
+            .cur_idx = @bitCast(@as(i32, -1)),
             .alloc = lex.alloc,
             .sym_tab = std.StringHashMap(?u32).init(lex.alloc),
             .reserved = reserved,
         };
+
+        _ = p.advance();
+        return p;
     }
 
-    pub fn deinit(self: *const Self) void {
-        self.lines.deinit(self.lex.alloc);
+    pub fn deinit(self: *Self) void {
+        self.lines.deinit(self.alloc);
+        self.sym_tab.deinit();
     }
 
-    pub fn parse(self: *Self) void {
-        _ = self;
+    pub fn parse(self: *Self) ![]Inst {
+        const astr = try self.first_pass();
+        if (astr.is_err()) {
+            _ = try astr.try_unwrap();
+            unreachable;
+        }
+
+        const ast = astr.unwrap();
+        errdefer self.alloc.free(ast);
+
+        try self.second_pass(ast);
+
+        return ast;
     }
 
     fn first_pass(self: *Self) !Result([]Inst) {
@@ -98,16 +114,22 @@ pub const Parser = struct {
         var code = std.ArrayList(Inst).init(self.alloc);
         defer code.deinit();
 
-        const start_ls = try ex_get_num_from_args(self.cur_line, 0);
+        const start_ls = try ex_get_num_from_args(&self.cur_line, 0);
         if (start_ls) |ls| {
             self.ls = ls.num;
         }
 
-        try code.append(Inst{
+        if (self.cur_line.label) |l| {
+            try self.sym_tab.put(l.lexeme, self.ls);
+        }
+
+        var inst = Inst{
             .kind = .Start,
-            .arg1 = ex_get_sym_from_label(self.cur_line),
-            .arg2 = start_ls,
-        });
+            .label = if (self.cur_line.label) |l| l.lexeme else null,
+            .arg1 = start_ls,
+        };
+
+        try code.append(inst);
 
         while (self.advance() and self.cur_line.instruction.type != .Eof) {
             const cl = self.cur_line;
@@ -115,14 +137,18 @@ pub const Parser = struct {
             if (cl.label) |l| {
                 const e = try self.sym_tab.getOrPut(l.lexeme);
 
-                if (e.found_existing and e.value_ptr != null) {
+                if (e.found_existing and e.value_ptr.* != null) {
                     return R.err(.{ .err = error.DuplicateLabelError, .msg = "Program should not have duplicate labels" });
                 }
 
                 e.value_ptr.* = self.ls;
             }
 
-            var inst = Inst{ .loc = self.ls, .base = self.base };
+            inst = Inst{
+                .label = if (self.cur_line.label) |l| l.lexeme else null,
+                .loc = self.ls,
+                .base = self.base,
+            };
 
             if (self.reserved.get(cl.instruction.lexeme)) |pfn| {
                 if (pfn != null) {
@@ -136,12 +162,92 @@ pub const Parser = struct {
 
                 const i_len = ISet.opTable.get(inst.opcode).?;
                 self.ls += i_len;
-            }
 
-            self.parse_args(&inst);
+                try self.parse_args(&inst);
+            }
 
             try code.append(inst);
         }
+
+        return R.ok(try code.toOwnedSlice());
+    }
+
+    fn second_pass(self: *Self, ast: []Inst) !void {
+        self.ls = 0;
+
+        for (ast) |*inst| {
+            switch (inst.kind) {
+                .Start => {
+                    if (inst.arg1) |n| {
+                        self.ls = n.num;
+                    }
+                },
+                .End => {
+                    if (inst.arg1.? == .sym) {
+                        inst.arg1 = try self.get_sym_from_symtab(inst.arg1.?.sym);
+                    }
+                },
+                .Byte,
+                => {
+                    if (inst.arg1.? == .sym) {
+                        inst.arg1 = try self.get_sym_from_symtab(inst.arg1.?.sym);
+                    }
+
+                    self.ls += 1;
+                },
+                .Word,
+                => {
+                    if (inst.arg1.? == .sym) {
+                        inst.arg1 = try self.get_sym_from_symtab(inst.arg1.?.sym);
+                    }
+
+                    self.ls += 3;
+                },
+                .Equ => {
+                    if (inst.arg1.? == .sym) {
+                        inst.arg1 = try self.get_sym_from_symtab(inst.arg1.?.sym);
+                    }
+
+                    const e = self.sym_tab.getEntry(inst.label.?).?;
+                    e.value_ptr.*.? = inst.arg1.?.num;
+                },
+                .Org => {
+                    if (inst.arg1.? == .sym) {
+                        inst.arg1 = try self.get_sym_from_symtab(inst.arg1.?.sym);
+                    }
+
+                    self.ls = inst.arg1.?.num;
+                },
+                .Base,
+                .NoBase,
+                => {},
+                .Resb => {
+                    self.ls += inst.arg1.?.num;
+                },
+                .Resw => {
+                    self.ls += inst.arg1.?.num * 3;
+                },
+                .Normal,
+                => {
+                    if (inst.label) |l| {
+                        const e = self.sym_tab.getEntry(l).?;
+                        e.value_ptr.* = self.ls;
+                    }
+                    inst.loc = self.ls;
+
+                    if (inst.arg1 != null and inst.arg1.? == .sym) {
+                        inst.arg1 = try self.get_sym_from_symtab(inst.arg1.?.sym);
+                    }
+
+                    const i_len = ISet.opTable.get(inst.opcode).?;
+                    self.ls += i_len;
+                },
+            }
+        }
+    }
+
+    fn get_sym_from_symtab(self: *const Self, sym: []const u8) !Expr {
+        return Expr{ .num = @truncate((self.sym_tab.get(sym) orelse return error.SymbolMissingError) orelse return error.SymbolMissingError) };
     }
 
     fn is_reserved(self: *const Self, str: []const u8) bool {
@@ -149,7 +255,7 @@ pub const Parser = struct {
     }
 
     fn advance(self: *Self) bool {
-        self.cur_idx += 1;
+        self.cur_idx +%= 1;
         if (self.cur_idx >= self.lines.lines.len) return false;
         self.cur_line = self.lines.lines[self.cur_idx];
         return true;
@@ -219,14 +325,14 @@ pub const Parser = struct {
                 if (reg) |r| {
                     inst.arg1 = Expr{ .reg = r };
                 } else {
-                    self.new_sym(args[i.*].lexeme, inst);
+                    try self.new_sym(args[i.*].lexeme, inst);
                 }
 
-                i += 1;
+                i.* += 1;
             },
             .Num => {
-                inst.arg1 = try ex_get_num_from_args(self.cur_line, i);
-                i += 1;
+                inst.arg1 = try ex_get_num_from_args(&self.cur_line, i.*);
+                i.* += 1;
             },
             else => {
                 return error.UnexpectedArgumentError;
@@ -248,7 +354,7 @@ pub const Parser = struct {
 
         try self.parse_first_arg(args, inst, &i);
 
-        if (args.len >= i) {
+        if (args.len > i) {
             if (args[i].type != .Comma) {
                 return error.ArgumentsNotSeparatedByComma;
             }
@@ -265,11 +371,11 @@ pub const Parser = struct {
         }
     }
 
-    fn new_sym(self: *Self, sym: []const u8, inst: *Inst) void {
+    fn new_sym(self: *Self, sym: []const u8, inst: *Inst) !void {
         const e = try self.sym_tab.getOrPut(sym);
 
         if (e.found_existing and e.value_ptr.* != null) {
-            inst.arg1 = Expr{ .num = e.value_ptr.*.? };
+            inst.arg1 = Expr{ .num = @truncate(e.value_ptr.*.?) };
         } else {
             inst.arg1 = Expr{ .sym = sym };
             e.value_ptr.* = null;
@@ -277,15 +383,21 @@ pub const Parser = struct {
     }
 
     fn parse_end(self: *Self, inst: *Inst) anyerror!void {
+        if (self.parsed_end) {
+            return error.EndDirectiveDuplicateError;
+        }
+
+        self.parsed_end = true;
+
         const args = self.cur_line.args orelse return error.EndExpectsAnArgument;
         if (args.len == 0) return error.EndExpectsAnArgument;
 
         inst.kind = .End;
 
-        var num = try ex_get_num_from_args(self.cur_line, 0);
+        var num = try ex_get_num_from_args(&self.cur_line, 0);
 
         if (num == null) {
-            num = try ex_get_sym_from_args(self.cur_line, 0);
+            num = ex_get_sym_from_args(&self.cur_line, 0);
         }
 
         if (num == null) {
@@ -293,20 +405,25 @@ pub const Parser = struct {
         }
 
         if (num.? == .sym) {
-            self.new_sym(num.?.sym, inst);
+            try self.new_sym(num.?.sym, inst);
+        } else {
+            inst.arg1 = num;
         }
     }
 
     fn parse_equ(self: *Self, inst: *Inst) anyerror!void {
+        const l = self.cur_line.label orelse return error.EquExpectsALabel;
+        inst.arg2 = Expr{ .sym = l.lexeme };
+
         const args = self.cur_line.args orelse return error.EquExpectsAnArgument;
         if (args.len == 0) return error.EquExpectsAnArgument;
 
         inst.kind = .Equ;
 
-        var num = try ex_get_num_from_args(self.cur_line, 0);
+        var num = try ex_get_num_from_args(&self.cur_line, 0);
 
         if (num == null) {
-            num = try ex_get_sym_from_args(self.cur_line, 0);
+            num = ex_get_sym_from_args(&self.cur_line, 0);
         }
 
         if (num == null) {
@@ -314,7 +431,16 @@ pub const Parser = struct {
         }
 
         if (num.? == .sym) {
-            self.new_sym(num.?.sym, inst);
+            try self.new_sym(num.?.sym, inst);
+        } else {
+            inst.arg1 = num;
+        }
+
+        const e = self.sym_tab.getEntry(inst.arg2.?.sym).?;
+        if (inst.arg1.? == .num) {
+            e.value_ptr.* = inst.arg1.?.num;
+        } else {
+            e.value_ptr.* = null;
         }
     }
 
@@ -322,7 +448,7 @@ pub const Parser = struct {
         const args = self.cur_line.args orelse return error.OrgExpectsAnArgument;
         if (args.len == 0) return error.OrgExpectsAnArgument;
 
-        const num = try ex_get_num_from_args(self.cur_line, 0) orelse return error.OrgExpectsANumberArgument;
+        const num = try ex_get_num_from_args(&self.cur_line, 0) orelse return error.OrgExpectsANumberArgument;
 
         self.ls = num.num;
         inst.kind = .Org;
@@ -339,22 +465,84 @@ pub const Parser = struct {
     }
 
     fn parse_byte(self: *Self, inst: *Inst) anyerror!void {
-        _ = self;
-        _ = inst;
+        const args = self.cur_line.args orelse return error.ByteExpectsAnArgument;
+        if (args.len == 0) return error.ByteExpectsAnArgument;
+
+        inst.kind = .Byte;
+
+        var num = try ex_get_num_from_args(&self.cur_line, 0);
+
+        if (num == null) {
+            num = ex_get_sym_from_args(&self.cur_line, 0);
+        }
+
+        if (num == null) {
+            return error.ByteDidNotGetNumOrIdError;
+        }
+
+        if (num.? == .sym) {
+            try self.new_sym(num.?.sym, inst);
+        } else {
+            inst.arg1 = num;
+        }
+
+        self.ls += 1;
     }
 
     fn parse_word(self: *Self, inst: *Inst) anyerror!void {
-        _ = self;
-        _ = inst;
+        const args = self.cur_line.args orelse return error.WordExpectsAnArgument;
+        if (args.len == 0) return error.WordExpectsAnArgument;
+
+        inst.kind = .Word;
+
+        var num = try ex_get_num_from_args(&self.cur_line, 0);
+
+        if (num == null) {
+            num = ex_get_sym_from_args(&self.cur_line, 0);
+        }
+
+        if (num == null) {
+            return error.WordDidNotGetNumOrIdError;
+        }
+
+        if (num.? == .sym) {
+            try self.new_sym(num.?.sym, inst);
+        } else {
+            inst.arg1 = num;
+        }
+
+        self.ls += 3;
     }
 
     fn parse_resb(self: *Self, inst: *Inst) anyerror!void {
-        _ = self;
-        _ = inst;
+        const args = self.cur_line.args orelse return error.ResbExpectsAnArgument;
+        if (args.len == 0) return error.ResbExpectsAnArgument;
+
+        inst.kind = .Resb;
+
+        const num = try ex_get_num_from_args(&self.cur_line, 0);
+
+        if (num == null) {
+            return error.ResbDidNotGetNumError;
+        }
+
+        inst.arg1 = num;
+        self.ls += num.?.num;
     }
 
     fn parse_resw(self: *Self, inst: *Inst) anyerror!void {
-        _ = self;
-        _ = inst;
+        const args = self.cur_line.args orelse return error.ReswExpectsAnArgument;
+        if (args.len == 0) return error.ReswExpectsAnArgument;
+
+        inst.kind = .Resw;
+
+        const num = try ex_get_num_from_args(&self.cur_line, 0);
+
+        if (num == null) {
+            return error.ReswDidNotGetNumError;
+        }
+
+        inst.arg1 = num;
+        self.ls += num.?.num * 3;
     }
 };

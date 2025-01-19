@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const Token = @import("token.zig");
 
-const result = @import("../../tools/result.zig");
+const result = @import("result");
 
 fn Result(comptime O: type) type {
     return result.Result(O, LexErr);

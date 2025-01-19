@@ -24,9 +24,35 @@ pub fn main() !void {
         \\. Konec
         \\ . Konec
     ;
-    const l = lex.init(prog, alloc);
-    const p = try par.Parser.init(l);
-    p.deinit();
+    _ = prog;
+
+    const prog2 =
+        \\PRG START 0
+        \\    LDA   #1
+        \\A   RESB  3
+        \\B   RESW  3
+        \\C   EQU   4
+        \\D   BYTE  1
+        \\E   WORD  2
+        \\    END   PRG
+    ;
+    const l = lex.init(prog2, alloc);
+    var p = try par.Parser.init(l);
+    defer p.deinit();
+
+    for (p.lines.lines) |ln| {
+        ln.display();
+        std.debug.print("\n", .{});
+    }
+
+    const ast = try p.parse();
+
+    for (ast) |i| {
+        i.display();
+        std.debug.print("\n", .{});
+    }
+
+    alloc.free(ast);
     // const lines = (try l.lines()).unwrap();
     // defer lines.deinit(alloc);
 
