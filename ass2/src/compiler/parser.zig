@@ -184,13 +184,13 @@ pub const Parser = struct {
                 },
                 .End => {
                     if (inst.arg1.? == .sym) {
-                        inst.arg1 = try self.get_sym_from_symtab(inst.arg1.?.sym);
+                        inst.res_arg1 = try self.get_sym_from_symtab(inst.arg1.?.sym);
                     }
                 },
                 .Byte,
                 => {
                     if (inst.arg1.? == .sym) {
-                        inst.arg1 = try self.get_sym_from_symtab(inst.arg1.?.sym);
+                        inst.res_arg1 = try self.get_sym_from_symtab(inst.arg1.?.sym);
                     }
 
                     self.ls += 1;
@@ -198,14 +198,14 @@ pub const Parser = struct {
                 .Word,
                 => {
                     if (inst.arg1.? == .sym) {
-                        inst.arg1 = try self.get_sym_from_symtab(inst.arg1.?.sym);
+                        inst.res_arg1 = try self.get_sym_from_symtab(inst.arg1.?.sym);
                     }
 
                     self.ls += 3;
                 },
                 .Equ => {
                     if (inst.arg1.? == .sym) {
-                        inst.arg1 = try self.get_sym_from_symtab(inst.arg1.?.sym);
+                        inst.res_arg1 = try self.get_sym_from_symtab(inst.arg1.?.sym);
                     }
 
                     const e = self.sym_tab.getEntry(inst.label.?).?;
@@ -213,7 +213,7 @@ pub const Parser = struct {
                 },
                 .Org => {
                     if (inst.arg1.? == .sym) {
-                        inst.arg1 = try self.get_sym_from_symtab(inst.arg1.?.sym);
+                        inst.res_arg1 = try self.get_sym_from_symtab(inst.arg1.?.sym);
                     }
 
                     self.ls = inst.arg1.?.num;
@@ -235,12 +235,14 @@ pub const Parser = struct {
                     }
                     inst.loc = self.ls;
 
-                    if (inst.arg1 != null and inst.arg1.? == .sym) {
-                        inst.arg1 = try self.get_sym_from_symtab(inst.arg1.?.sym);
-                    }
-
                     const i_len = ISet.opTable.get(inst.opcode).?;
                     self.ls += i_len;
+
+                    if (inst.arg1 != null and inst.arg1.? == .sym) {
+                        var e = try self.get_sym_from_symtab(inst.arg1.?.sym);
+                        e.num = @bitCast(@as(i24, @bitCast(e.num)) - @as(i24, @bitCast(@as(u24, @truncate(self.ls)))));
+                        inst.res_arg1 = e;
+                    }
                 },
             }
         }
@@ -375,7 +377,8 @@ pub const Parser = struct {
         const e = try self.sym_tab.getOrPut(sym);
 
         if (e.found_existing and e.value_ptr.* != null) {
-            inst.arg1 = Expr{ .num = @truncate(e.value_ptr.*.?) };
+            inst.arg1 = Expr{ .sym = sym };
+            inst.res_arg1 = Expr{ .num = @truncate(e.value_ptr.*.?) };
         } else {
             inst.arg1 = Expr{ .sym = sym };
             e.value_ptr.* = null;
@@ -412,9 +415,6 @@ pub const Parser = struct {
     }
 
     fn parse_equ(self: *Self, inst: *Inst) anyerror!void {
-        const l = self.cur_line.label orelse return error.EquExpectsALabel;
-        inst.arg2 = Expr{ .sym = l.lexeme };
-
         const args = self.cur_line.args orelse return error.EquExpectsAnArgument;
         if (args.len == 0) return error.EquExpectsAnArgument;
 
@@ -436,7 +436,7 @@ pub const Parser = struct {
             inst.arg1 = num;
         }
 
-        const e = self.sym_tab.getEntry(inst.arg2.?.sym).?;
+        const e = self.sym_tab.getEntry(inst.label.?).?;
         if (inst.arg1.? == .num) {
             e.value_ptr.* = inst.arg1.?.num;
         } else {

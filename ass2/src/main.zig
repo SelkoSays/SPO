@@ -36,7 +36,14 @@ pub fn main() !void {
         \\E   WORD  2
         \\    END   PRG
     ;
-    const l = lex.init(prog2, alloc);
+    _ = prog2;
+
+    const f1 = try std.fs.cwd().openFile("../ass1/cat.asm", .{ .mode = .read_only });
+    // f1.readToEndAlloc(allocator: Allocator, max_bytes: usize)
+    const prog3 = try f1.reader().readAllAlloc(alloc, 1_000_000_000);
+    defer alloc.free(prog3);
+
+    const l = lex.init(prog3, alloc);
     var p = try par.Parser.init(l);
     defer p.deinit();
 
@@ -47,9 +54,19 @@ pub fn main() !void {
 
     const ast = try p.parse();
 
+    const f: std.fs.File = try (std.fs.cwd().createFile("neki.lst", .{}) catch std.fs.cwd().openFile("neki.lst", .{ .mode = .write_only }));
+    const w = f.writer().any();
+
     for (ast) |i| {
-        i.display();
-        std.debug.print("\n", .{});
+        // i.display();
+        // std.debug.print("\n", .{});
+
+        i.lst_str(w) catch |e| {
+            std.log.err("{}", .{e});
+        };
+        w.writeByte('\n') catch |e| {
+            std.log.err("{}", .{e});
+        };
     }
 
     alloc.free(ast);
