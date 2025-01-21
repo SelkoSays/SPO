@@ -98,11 +98,12 @@ const RunAction = union(enum) {
     Noop,
     Tui,
     Gui,
-    Compile,
+    Compile: []const u8,
 };
 
 pub fn parseArgs(alloc: Allocator) !RunAction {
     var args = try std.process.argsWithAllocator(alloc);
+    defer args.deinit();
 
     _ = args.next(); // skip program name
 
@@ -123,17 +124,29 @@ pub fn parseArgs(alloc: Allocator) !RunAction {
         // gui action
         return .Gui;
     } else if (std.mem.eql(u8, cmd.?, "compile")) {
-        return .Compile;
+        const name = args.next();
+        if (name == null) {
+            return error.NoFileProvided;
+        }
+
+        return .{ .Compile = name.? };
     }
     // unknown command
     return .Noop;
 }
 
 pub fn run(alloc: Allocator, action: RunAction) !void {
-    var thread = try std.Thread.spawn(.{}, execute_machine, .{});
+    var thread: std.Thread = undefined;
+
+    if (action == .Tui) {
+        thread = try std.Thread.spawn(.{}, execute_machine, .{});
+    }
 
     try switch (action) {
         .Tui => runTui(alloc),
+        .Compile => |name| {
+            try compile(alloc, name);
+        },
         else => {},
     };
 
@@ -145,7 +158,84 @@ pub fn run(alloc: Allocator, action: RunAction) !void {
         runner.m.unlock();
     }
 
-    thread.join();
+    if (action == .Tui) {
+        thread.join();
+    }
+}
+
+const lex = @import("../compiler/lexer.zig");
+const par = @import("../compiler/parser.zig");
+const com = @import("../compiler/compiler.zig");
+
+fn compile(alloc: Allocator, name: []const u8) !void {
+    const src = try std.fs.cwd().openFile(name, .{ .mode = .read_only });
+    defer src.close();
+
+    const prog = try src.reader().readAllAlloc(alloc, 1_000_000_000);
+    defer alloc.free(prog);
+
+    const l = lex.init(prog, alloc);
+    var p = try par.Parser.init(l);
+    defer p.deinit();
+
+    const ast = try p.parse();
+
+    const dir = std.fs.path.dirname(name) orelse ".";
+    const bname = std.fs.path.stem(name);
+
+    const ex_path = try std.fs.path.join(alloc, &.{ dir, bname });
+    defer alloc.free(ex_path);
+
+    var pth = try alloc.alloc(u8, ex_path.len + 4);
+    defer alloc.free(pth);
+
+    @memcpy(pth.ptr, ex_path);
+    pth[ex_path.len] = '.';
+
+    pth[ex_path.len + 1] = 'l';
+    pth[ex_path.len + 2] = 's';
+    pth[ex_path.len + 3] = 't';
+    const lst: std.fs.File = try (std.fs.cwd().createFile(
+        pth,
+        .{},
+    ) catch std.fs.cwd().openFile(
+        pth,
+        .{ .mode = .write_only },
+    ));
+    defer lst.close();
+
+    const w = lst.writer().any();
+
+    for (ast) |i| {
+        i.lst_str(w) catch |e| {
+            std.log.err("{}", .{e});
+        };
+        w.writeByte('\n') catch |e| {
+            std.log.err("{}", .{e});
+        };
+    }
+
+    pth[ex_path.len + 1] = 'o';
+    pth[ex_path.len + 2] = 'b';
+    pth[ex_path.len + 3] = 'j';
+    const obj_f: std.fs.File = try (std.fs.cwd().createFile(
+        pth,
+        .{},
+    ) catch std.fs.cwd().openFile(
+        pth,
+        .{ .mode = .write_only },
+    ));
+    defer obj_f.close();
+
+    const w2 = obj_f.writer().any();
+
+    const comp = try com.Compiler.init(ast);
+    const obj = try comp.emit_obj(alloc);
+    defer obj.deinit(alloc);
+
+    try obj.display(w2);
+
+    alloc.free(ast);
 }
 
 fn runTui(alloc: Allocator) !void {

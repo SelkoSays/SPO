@@ -208,6 +208,24 @@ pub const Compiler = struct {
                     } else {
                         code_len = i.arg1.?.num;
                     }
+
+                    if (t_code.items.len > 0) {
+                        rec.T.len = @truncate(t_code.items.len);
+                        rec.T.code = try t_code.toOwnedSlice();
+
+                        try recs.append(rec);
+
+                        rec = Code.Record{
+                            .T = .{
+                                .addr = undefined,
+                                .len = 0,
+                                .code = undefined,
+                            },
+                        };
+
+                        t_code = std.ArrayList(u8).init(alloc);
+                    }
+                    new = true;
                 },
                 else => {},
             }
