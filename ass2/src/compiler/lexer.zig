@@ -243,7 +243,7 @@ fn arguments(self: *Self) !Result([]Token) {
             '@' => {
                 try args.append(Token.init(.At, "@", self.curPos(null, null)));
             },
-            'a'...'z', 'A'...'Z' => {
+            'a'...'z', 'A'...'Z', '_' => {
                 const id = self.identifier();
                 if (id.is_err()) {
                     return id.map_ok([]Token, null) catch unreachable;
@@ -293,11 +293,11 @@ fn identifier(self: *Self) Result([]const u8) {
 
     var ch = self.ch;
 
-    if (!ascii.isAlphabetic(ch)) {
+    if (!ascii.isAlphabetic(ch) and ch != '_') {
         return R.err(.{ .pos = self.curPos(null, null), .msg = "Label should start with an alphabetic character" });
     }
 
-    while (ascii.isAlphanumeric(ch)) {
+    while (ascii.isAlphanumeric(ch) or ch == '_') {
         ch = self.advance();
     }
 

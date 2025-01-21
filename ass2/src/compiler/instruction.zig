@@ -44,7 +44,11 @@ pub const Instruction = struct {
         if (ln == 1) return b;
 
         if (ln == 2) {
-            b[1] = (@as(u8, self.arg1.?.reg.asInt()) << 4) | self.arg2.?.reg.asInt();
+            std.log.debug("OPCODE: {s}", .{@tagName(self.opcode)});
+            b[1] = (@as(u8, self.arg1.?.reg.asInt()) << 4);
+            if (self.arg2 != null) {
+                b[1] |= self.arg2.?.reg.asInt();
+            }
             return b;
         }
 
@@ -56,14 +60,16 @@ pub const Instruction = struct {
                 b[0] |= 0b11;
             },
             .Indirect => b[0] |= 0b10,
-            else => unreachable,
+            else => {},
         }
+
+        if (self.arg1 == null) return b;
 
         if (self.arg2 != null) { // use X
             b[1] |= 1 << 7;
         }
 
-        if (!self.sic) {
+        if (!self.sic and self.addr_mode != .None and self.addr_mode != .Immediate) {
             if (self.extended) {
                 b[1] |= 1 << 4;
             }
@@ -74,8 +80,6 @@ pub const Instruction = struct {
                 b[1] |= 1 << 5;
             }
         }
-
-        if (self.arg1 == null) return b;
 
         var n: u24 = 0;
         if (self.arg1.? == .num) {
@@ -180,6 +184,12 @@ pub const Instruction = struct {
 
         if (self.arg1 == null) return;
 
+        switch (self.addr_mode) {
+            .Immediate => try w.writeByte('#'),
+            .Indirect => try w.writeByte('@'),
+            else => {},
+        }
+
         switch (self.arg1.?) {
             .num => |n| try w.print("{d}", .{n}),
             .sym => |s| _ = try w.write(s),
@@ -189,7 +199,7 @@ pub const Instruction = struct {
         if (self.arg2 == null) return;
 
         try w.writeByte(',');
-        switch (self.arg1.?) {
+        switch (self.arg2.?) {
             .reg => |r| _ = try w.write(@tagName(r)),
             else => unreachable,
         }

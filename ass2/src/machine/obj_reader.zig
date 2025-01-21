@@ -8,14 +8,14 @@ fn Result(comptime O: type) type {
 }
 
 pub const Code = struct {
-    header: Header,
-    start_addr: u24,
-    records: []const Record,
+    header: Header = .{},
+    start_addr: u24 = 0,
+    records: []const Record = undefined,
 
     pub const Header = struct {
         name: [6]u8 = [_]u8{' '} ** 6,
-        addr: u24,
-        len: u24,
+        addr: u24 = 0,
+        len: u24 = 0,
     };
 
     pub const Record = union(enum) {

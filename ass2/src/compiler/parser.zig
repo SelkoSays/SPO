@@ -240,7 +240,9 @@ pub const Parser = struct {
 
                     if (inst.arg1 != null and inst.arg1.? == .sym) {
                         var e = try self.get_sym_from_symtab(inst.arg1.?.sym);
-                        e.num = @bitCast(@as(i24, @bitCast(e.num)) - @as(i24, @bitCast(@as(u24, @truncate(self.ls)))));
+                        if (inst.addr_mode == .Normal and !inst.sic and !inst.base) {
+                            e.num = @bitCast(@as(i24, @bitCast(e.num)) - @as(i24, @bitCast(@as(u24, @truncate(self.ls)))));
+                        }
                         inst.res_arg1 = e;
                     }
                 },
@@ -313,7 +315,9 @@ pub const Parser = struct {
                 i.* += 1;
                 return true;
             },
-            else => {},
+            else => {
+                inst.addr_mode = .Normal;
+            },
         }
 
         return false;
@@ -353,6 +357,10 @@ pub const Parser = struct {
         if (am and args.len <= i) {
             return error.InsufficientArgumentsError;
         }
+
+        // if (args.len == 0) {
+        //     inst.addr_mode = .None;
+        // }
 
         try self.parse_first_arg(args, inst, &i);
 
@@ -452,9 +460,11 @@ pub const Parser = struct {
 
         self.ls = num.num;
         inst.kind = .Org;
+        inst.arg1 = num;
     }
 
     fn parse_base(self: *Self, inst: *Inst) anyerror!void {
+        // TODO: fix, base has one argument
         inst.kind = .Base;
         self.base = true;
     }
