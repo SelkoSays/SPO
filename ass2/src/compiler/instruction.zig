@@ -34,7 +34,7 @@ pub const Instruction = struct {
         });
     }
 
-    fn bytes(self: *const Instruction, len: *u3) [4]u8 {
+    pub fn bytes(self: *const Instruction, len: *u3) [4]u8 {
         var b = [4]u8{ 0, 0, 0, 0 };
         b[0] = self.opcode.int();
 

@@ -2,6 +2,7 @@ const std = @import("std");
 const run = @import("runner/runner.zig");
 const lex = @import("compiler/lexer.zig");
 const par = @import("compiler/parser.zig");
+const com = @import("compiler/compiler.zig");
 
 pub const std_options: std.Options = .{ .log_level = .warn };
 
@@ -38,7 +39,7 @@ pub fn main() !void {
     ;
     _ = prog2;
 
-    const f1 = try std.fs.cwd().openFile("../ass1/cat.asm", .{ .mode = .read_only });
+    const f1 = try std.fs.cwd().openFile("../ass1/arith.asm", .{ .mode = .read_only });
     // f1.readToEndAlloc(allocator: Allocator, max_bytes: usize)
     const prog3 = try f1.reader().readAllAlloc(alloc, 1_000_000_000);
     defer alloc.free(prog3);
@@ -57,6 +58,9 @@ pub fn main() !void {
     const f: std.fs.File = try (std.fs.cwd().createFile("neki.lst", .{}) catch std.fs.cwd().openFile("neki.lst", .{ .mode = .write_only }));
     const w = f.writer().any();
 
+    const f2: std.fs.File = try (std.fs.cwd().createFile("neki.obj", .{}) catch std.fs.cwd().openFile("neki.obj", .{ .mode = .write_only }));
+    const w2 = f2.writer().any();
+
     for (ast) |i| {
         // i.display();
         // std.debug.print("\n", .{});
@@ -68,6 +72,12 @@ pub fn main() !void {
             std.log.err("{}", .{e});
         };
     }
+
+    const comp = try com.Compiler.init(ast);
+    const obj = try comp.emit_obj(alloc);
+    defer obj.deinit(alloc);
+
+    try obj.display(w2);
 
     alloc.free(ast);
     // const lines = (try l.lines()).unwrap();

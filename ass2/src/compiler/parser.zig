@@ -216,7 +216,11 @@ pub const Parser = struct {
                         inst.res_arg1 = try self.get_sym_from_symtab(inst.arg1.?.sym);
                     }
 
-                    self.ls = inst.arg1.?.num;
+                    if (inst.res_arg1) |a| {
+                        self.ls = a.num;
+                    } else {
+                        self.ls = inst.arg1.?.num;
+                    }
                 },
                 .Base,
                 .NoBase,
