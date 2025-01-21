@@ -36,7 +36,7 @@ pub const Compiler = struct {
     pub fn emit_obj(self: *const Self, alloc: Allocator) !Code {
         var code = Code{
             .header = .{
-                .addr = @truncate(self.start.loc),
+                .addr = self.start.arg1.?.num,
             },
         };
 
@@ -218,6 +218,20 @@ pub const Compiler = struct {
             rec.T.code = try t_code.toOwnedSlice();
 
             try recs.append(rec);
+        }
+
+        for (self.ast[1..]) |*i| {
+            if (!i.extended) continue;
+
+            // addr: u24,
+            // len: u8,
+            // sign: ?u8 = null, // + or -
+            // sym_name: [6]u8 = [_]u8{' '} ** 6,
+
+            try recs.append(.{ .M = .{
+                .addr = @as(u24, @truncate(i.loc)) + 1,
+                .len = 5,
+            } });
         }
 
         code.records = try recs.toOwnedSlice();

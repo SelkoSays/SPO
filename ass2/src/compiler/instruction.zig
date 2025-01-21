@@ -76,7 +76,7 @@ pub const Instruction = struct {
 
             if (self.base) {
                 b[1] |= 1 << 6;
-            } else {
+            } else if (!self.extended) {
                 b[1] |= 1 << 5;
             }
         }
@@ -178,7 +178,15 @@ pub const Instruction = struct {
                 _ = try w.write("WORD     ");
             },
             .Normal => {
-                try w.print("{s: <7}  ", .{@tagName(self.opcode)});
+                if (self.extended) {
+                    try w.writeByte('+');
+                    try w.print("{s: <6}  ", .{@tagName(self.opcode)});
+                } else if (self.sic) {
+                    try w.writeByte('-');
+                    try w.print("{s: <6}  ", .{@tagName(self.opcode)});
+                } else {
+                    try w.print("{s: <7}  ", .{@tagName(self.opcode)});
+                }
             },
         }
 

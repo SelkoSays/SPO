@@ -156,7 +156,7 @@ pub fn next(self: *Self) !Result(Line) {
     var line = Line{};
 
     if (!std.ascii.isWhitespace(ch)) {
-        const id = self.identifier();
+        const id = self.identifier(false);
         if (id.is_err()) {
             return id.map_ok(Line, null) catch unreachable;
         }
@@ -176,7 +176,7 @@ pub fn next(self: *Self) !Result(Line) {
     }
 
     // Lex instruction
-    const instr = self.identifier();
+    const instr = self.identifier(true);
     if (instr.is_err()) {
         return instr.map_ok(Line, null) catch unreachable;
     }
@@ -244,7 +244,7 @@ fn arguments(self: *Self) !Result([]Token) {
                 try args.append(Token.init(.At, "@", self.curPos(null, null)));
             },
             'a'...'z', 'A'...'Z', '_' => {
-                const id = self.identifier();
+                const id = self.identifier(false);
                 if (id.is_err()) {
                     return id.map_ok([]Token, null) catch unreachable;
                 }
@@ -285,13 +285,17 @@ fn arguments(self: *Self) !Result([]Token) {
     return R.ok(try args.toOwnedSlice());
 }
 
-fn identifier(self: *Self) Result([]const u8) {
+fn identifier(self: *Self, ins: bool) Result([]const u8) {
     const R = Result([]const u8);
     const ascii = std.ascii;
 
     self.start = self.cur;
 
     var ch = self.ch;
+
+    if (ins and (ch == '+' or ch == '-')) {
+        ch = self.advance();
+    }
 
     if (!ascii.isAlphabetic(ch) and ch != '_') {
         return R.err(.{ .pos = self.curPos(null, null), .msg = "Label should start with an alphabetic character" });

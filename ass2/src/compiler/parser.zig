@@ -127,6 +127,7 @@ pub const Parser = struct {
             .kind = .Start,
             .label = if (self.cur_line.label) |l| l.lexeme else null,
             .arg1 = start_ls,
+            .loc = self.ls,
         };
 
         try code.append(inst);
@@ -155,13 +156,24 @@ pub const Parser = struct {
                     try pfn.?(self, &inst);
                 }
             } else {
-                inst.opcode = std.meta.stringToEnum(ISet.Opcode, cl.instruction.lexeme) orelse return R.err(.{
+                var shift = false;
+                if (cl.instruction.lexeme[0] == '+') {
+                    inst.extended = true;
+                    shift = true;
+                } else if (cl.instruction.lexeme[0] == '-') {
+                    inst.sic = true;
+                    shift = true;
+                }
+                inst.opcode = std.meta.stringToEnum(ISet.Opcode, if (shift) cl.instruction.lexeme[1..] else cl.instruction.lexeme) orelse return R.err(.{
                     .err = error.InvalidInstructionError,
                     .msg = "Instruction does not exist",
                 });
 
                 const i_len = ISet.opTable.get(inst.opcode).?;
                 self.ls += i_len;
+                if (inst.extended) {
+                    self.ls += 1;
+                }
 
                 try self.parse_args(&inst);
             }
@@ -241,10 +253,13 @@ pub const Parser = struct {
 
                     const i_len = ISet.opTable.get(inst.opcode).?;
                     self.ls += i_len;
+                    if (inst.extended) {
+                        self.ls += 1;
+                    }
 
                     if (inst.arg1 != null and inst.arg1.? == .sym) {
                         var e = try self.get_sym_from_symtab(inst.arg1.?.sym);
-                        if (inst.addr_mode == .Normal and !inst.sic and !inst.base) {
+                        if (inst.addr_mode == .Normal and !inst.sic and !inst.base and !inst.extended) {
                             e.num = @bitCast(@as(i24, @bitCast(e.num)) - @as(i24, @bitCast(@as(u24, @truncate(self.ls)))));
                         }
                         inst.res_arg1 = e;
